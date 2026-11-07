@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FinancialDisclosure>
+  <Member>
+    <Prefix>Hon.</Prefix>
+    <Last>Example</Last>
+    <First>Alex</First>
+    <Suffix />
+    <FilingType>P</FilingType>
+    <StateDst>CA99</StateDst>
+    <Year>2026</Year>
+    <FilingDate>11/2/2026</FilingDate>
+    <DocID>20099001</DocID>
+  </Member>
+  <Member>
+    <Prefix />
+    <Last>Sample</Last>
+    <First>Robin</First>
+    <Suffix>Jr.</Suffix>
+    <FilingType>O</FilingType>
+    <StateDst>TX98</StateDst>
+    <Year>2026</Year>
+    <FilingDate>5/15/2026</FilingDate>
+    <DocID>10099002</DocID>
+  </Member>
+  <Member>
+    <Prefix>Hon.</Prefix>
+    <Last>Paper</Last>
+    <First>Pat</First>
+    <Suffix />
+    <FilingType>P</FilingType>
+    <StateDst>NY97</StateDst>
+    <Year>2026</Year>
+    <FilingDate>10/30/2026</FilingDate>
+    <DocID>8220099</DocID>
+  </Member>
+</FinancialDisclosure>

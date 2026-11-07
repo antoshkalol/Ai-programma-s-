@@ -1,0 +1,4 @@
+{"articles": [
+  {"url": "https://www.ft.com/content/example-1", "url_mobile": "", "title": "Sample Software faces regulatory probe over data practices", "seendate": "20261107T131500Z", "socialimage": "", "domain": "ft.com", "language": "English", "sourcecountry": "United Kingdom"},
+  {"url": "https://unknownblog.example/post/2", "url_mobile": "", "title": "Markets drift as investors await Fed minutes", "seendate": "20261107T131000Z", "socialimage": "", "domain": "unknownblog.example", "language": "English", "sourcecountry": "United States"}
+]}

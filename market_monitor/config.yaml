@@ -1,0 +1,105 @@
+name: Market Monitor
+version: "0.1.0"
+slug: market_monitor
+description: >-
+  Volgt grote aandelentransacties van politici en bedrijfsinsiders, filtert het nieuws op
+  betrouwbaarheid en maakt elk halfuur een samenvatting met koopscores.
+url: https://github.com/antoshkalol/Ai-programma-s-
+arch:
+  - aarch64
+  - amd64
+init: false
+startup: application
+boot: auto
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:finance
+panel_title: Market Monitor
+homeassistant_api: true
+ports:
+  8099/tcp: null
+ports_description:
+  8099/tcp: Dashboard direct openen zonder Home Assistant (optioneel, bv. voor een aparte monitor)
+options:
+  sec_user_agent: ""
+  anthropic_api_key: ""
+  anthropic_model: claude-opus-5-5
+  anthropic_effort: medium
+  summary_language: nl
+  summary_interval_minutes: 30
+  watchlist:
+    - AAPL
+    - MSFT
+    - NVDA
+    - AMZN
+    - GOOGL
+    - META
+    - TSLA
+    - AVGO
+    - JPM
+    - ASML
+  min_trade_value_usd: 100000
+  big_trade_alert_usd: 1000000
+  min_news_credibility: 0.45
+  enable_sec_form4: true
+  enable_house: true
+  enable_senate: true
+  enable_rss: true
+  enable_google_news: true
+  enable_gdelt: true
+  news_queries:
+    - stock market
+    - earnings
+    - insider buying
+    - Federal Reserve
+    - Wall Street
+  extra_rss_feeds: []
+  trusted_domains: []
+  blocked_domains: []
+  quiver_api_key: ""
+  x_bearer_token: ""
+  x_accounts:
+    - elonmusk
+    - realDonaldTrump
+    - WhiteHouse
+    - federalreserve
+    - SECGov
+    - Reuters
+    - business
+    - WSJmarkets
+    - CNBC
+    - DeItaone
+  publish_to_home_assistant: true
+  log_level: info
+schema:
+  sec_user_agent: str?
+  anthropic_api_key: password?
+  anthropic_model: str
+  anthropic_effort: list(low|medium|high|xhigh|max)
+  summary_language: list(nl|en)
+  summary_interval_minutes: int(5,240)
+  watchlist:
+    - str?
+  min_trade_value_usd: int(0,)
+  big_trade_alert_usd: int(0,)
+  min_news_credibility: float(0,1)
+  enable_sec_form4: bool
+  enable_house: bool
+  enable_senate: bool
+  enable_rss: bool
+  enable_google_news: bool
+  enable_gdelt: bool
+  news_queries:
+    - str?
+  extra_rss_feeds:
+    - str?
+  trusted_domains:
+    - str?
+  blocked_domains:
+    - str?
+  quiver_api_key: password?
+  x_bearer_token: password?
+  x_accounts:
+    - str?
+  publish_to_home_assistant: bool
+  log_level: list(debug|info|warning|error)

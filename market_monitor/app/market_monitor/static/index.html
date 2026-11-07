@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Market Monitor</title>
+  <link rel="stylesheet" href="static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span>Market Monitor</span>
+    </div>
+    <div class="mood" id="mood" aria-live="polite"></div>
+    <div class="stats" id="stats"></div>
+    <div class="health" id="health"></div>
+    <div class="actions">
+      <span class="updated" id="updated"></span>
+      <button type="button" id="btn-refresh" title="Nu alle bronnen verversen">Verversen</button>
+      <button type="button" id="btn-theme" title="Licht/donker">Thema</button>
+      <button type="button" id="btn-full" title="Volledig scherm (voor een monitor)">Volledig scherm</button>
+    </div>
+  </header>
+
+  <main class="grid">
+    <section class="panel" id="panel-trades" aria-labelledby="h-trades">
+      <div class="panel-head">
+        <h2 id="h-trades">Grote transacties</h2>
+        <div class="filters" role="group" aria-label="Filters transacties">
+          <div class="seg" data-filter="actor">
+            <button type="button" data-v="all" class="on">Alles</button>
+            <button type="button" data-v="politician">Politici</button>
+            <button type="button" data-v="insider">Insiders</button>
+          </div>
+          <div class="seg" data-filter="type">
+            <button type="button" data-v="all" class="on">Alles</button>
+            <button type="button" data-v="buy">Kopen</button>
+            <button type="button" data-v="sell">Verkopen</button>
+          </div>
+          <select id="f-min" aria-label="Minimaal bedrag">
+            <option value="0">Elk bedrag</option>
+            <option value="100000" selected>vanaf $100k</option>
+            <option value="1000000">vanaf $1 mln</option>
+            <option value="10000000">vanaf $10 mln</option>
+          </select>
+        </div>
+      </div>
+      <div class="panel-body">
+        <table class="trades">
+          <thead>
+            <tr><th>Gemeld</th><th>Wie</th><th>Aandeel</th><th>Actie</th><th class="num">Bedrag</th><th class="num" title="Dagen tussen transactie en melding">Vertraging</th></tr>
+          </thead>
+          <tbody id="trades-body"></tbody>
+        </table>
+        <p class="empty" id="trades-empty" hidden>Nog geen transacties die aan de filters voldoen.</p>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-news" aria-labelledby="h-news">
+      <div class="panel-head">
+        <h2 id="h-news">Nieuws <span class="sub">gefilterd op betrouwbaarheid</span></h2>
+        <div class="filters">
+          <div class="seg" data-filter="junk">
+            <button type="button" data-v="0" class="on">Betrouwbaar</button>
+            <button type="button" data-v="1" id="btn-junk">Weggefilterd</button>
+          </div>
+        </div>
+      </div>
+      <div class="panel-body"><ul class="news" id="news-list"></ul>
+        <p class="empty" id="news-empty" hidden>Nog geen berichten.</p></div>
+    </section>
+
+    <section class="panel" id="panel-summary" aria-labelledby="h-summary">
+      <div class="panel-head">
+        <h2 id="h-summary">Samenvatting <span class="sub" id="summary-period"></span></h2>
+        <div class="filters"><select id="summary-select" aria-label="Eerdere samenvattingen"></select></div>
+      </div>
+      <div class="panel-body" id="summary-body"></div>
+    </section>
+
+    <section class="panel" id="panel-scores" aria-labelledby="h-scores">
+      <div class="panel-head">
+        <h2 id="h-scores">Kooplijst <span class="sub">score 0-100 · kans omhoog ~1 maand</span></h2>
+      </div>
+      <div class="panel-body">
+        <ol class="scores" id="scores-list"></ol>
+        <p class="empty" id="scores-empty" hidden>De scores worden berekend zodra er data binnen is (na een paar minuten).</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="disclaimer">
+    Geen beleggingsadvies. Scores en kansen zijn modelinschattingen op basis van openbare data en kunnen er flink naast
+    zitten. Politici melden transacties tot 45 dagen later, insiders binnen 2 werkdagen. Koersen kunnen vertraagd zijn.
+  </footer>
+
+  <div class="drawer-backdrop" id="drawer-backdrop" hidden></div>
+  <aside class="drawer" id="drawer" aria-hidden="true" aria-labelledby="d-title" tabindex="-1">
+    <div class="drawer-head">
+      <div>
+        <h2 id="d-title"></h2>
+        <div class="sub" id="d-name"></div>
+      </div>
+      <button type="button" id="d-close" aria-label="Sluiten">Sluiten</button>
+    </div>
+    <div class="drawer-body" id="d-body"></div>
+  </aside>
+
+  <div class="tooltip" id="tooltip" role="status" hidden></div>
+  <script src="static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,57 @@
+configuration:
+  sec_user_agent:
+    name: SEC User-Agent (name + email)
+    description: Required by the SEC to fetch insider filings, e.g. "Jane Doe jane@example.com". Only sent to sec.gov.
+  anthropic_api_key:
+    name: Anthropic API key (optional)
+    description: Enables AI summaries by Claude. Without a key the add-on writes an automatic summary.
+  anthropic_model:
+    name: Claude model
+    description: Default claude-opus-5-5 (best quality). claude-sonnet-5-5 or claude-haiku-5-5 cost much less.
+  anthropic_effort:
+    name: Claude effort level
+  summary_language:
+    name: Summary language
+  summary_interval_minutes:
+    name: Summary every ... minutes
+  watchlist:
+    name: Watchlist (tickers)
+  min_trade_value_usd:
+    name: Minimum trade size (USD)
+  big_trade_alert_usd:
+    name: Alert threshold (USD)
+    description: Fires the market_monitor_big_trade event in Home Assistant from this amount.
+  min_news_credibility:
+    name: Minimum news credibility (0-1)
+  enable_sec_form4:
+    name: SEC insiders (Form 4)
+  enable_house:
+    name: US House of Representatives
+  enable_senate:
+    name: US Senate
+  enable_rss:
+    name: RSS feeds of trusted media
+  enable_google_news:
+    name: Google News
+  enable_gdelt:
+    name: GDELT (global news)
+  news_queries:
+    name: News search terms
+  extra_rss_feeds:
+    name: Extra RSS feeds
+  trusted_domains:
+    name: Trusted domains
+  blocked_domains:
+    name: Blocked domains
+  quiver_api_key:
+    name: Quiver Quantitative API key (optional, paid)
+  x_bearer_token:
+    name: X (Twitter) bearer token (optional, paid)
+  x_accounts:
+    name: X accounts to follow
+  publish_to_home_assistant:
+    name: Publish sensors to Home Assistant
+  log_level:
+    name: Log level
+network:
+  8099/tcp: Open the dashboard directly without Home Assistant (optional)

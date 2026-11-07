@@ -1,0 +1,72 @@
+configuration:
+  sec_user_agent:
+    name: SEC User-Agent (naam + e-mail)
+    description: >-
+      Verplicht door de SEC voor het ophalen van insidermeldingen. Vul in als "Jan Jansen jan@voorbeeld.nl".
+      Wordt alleen naar sec.gov gestuurd.
+  anthropic_api_key:
+    name: Anthropic API-sleutel (optioneel)
+    description: >-
+      Voor AI-samenvattingen door Claude (console.anthropic.com). Zonder sleutel maakt de app zelf een
+      automatische samenvatting.
+  anthropic_model:
+    name: Claude-model
+    description: >-
+      Standaard claude-opus-5-5 (beste kwaliteit). claude-sonnet-5-5 of claude-haiku-5-5 zijn veel goedkoper.
+  anthropic_effort:
+    name: Denkniveau van Claude
+    description: Hoeveel moeite het model doet (low is sneller en goedkoper, high grondiger).
+  summary_language:
+    name: Taal samenvatting
+  summary_interval_minutes:
+    name: Samenvatting elke ... minuten
+  watchlist:
+    name: Volglijst (tickers)
+    description: Aandelen die altijd in de kooplijst worden beoordeeld, bv. AAPL, ASML, NVDA.
+  min_trade_value_usd:
+    name: Minimale transactiegrootte (USD)
+    description: Transacties vanaf dit bedrag gelden als "groot" in de samenvatting.
+  big_trade_alert_usd:
+    name: Alert-drempel (USD)
+    description: Vanaf dit bedrag vuurt de add-on het event market_monitor_big_trade af in Home Assistant.
+  min_news_credibility:
+    name: Minimale geloofwaardigheid nieuws (0-1)
+    description: Berichten daaronder worden weggefilterd. Hoger = strenger.
+  enable_sec_form4:
+    name: SEC insiders (Form 4)
+  enable_house:
+    name: Huis van Afgevaardigden (VS)
+  enable_senate:
+    name: Senaat (VS)
+  enable_rss:
+    name: RSS-feeds van betrouwbare media
+  enable_google_news:
+    name: Google News
+  enable_gdelt:
+    name: GDELT (wereldwijd nieuws)
+  news_queries:
+    name: Zoektermen nieuws
+    description: Zoektermen voor Google News en GDELT.
+  extra_rss_feeds:
+    name: Extra RSS-feeds
+    description: Eigen feeds (volledige URL's), bv. van een nieuwssite of blog die je vertrouwt.
+  trusted_domains:
+    name: Vertrouwde domeinen
+    description: Domeinen die je extra vertrouwt, bv. fd.nl.
+  blocked_domains:
+    name: Geblokkeerde domeinen
+    description: Domeinen die altijd worden weggefilterd.
+  quiver_api_key:
+    name: Quiver Quantitative API-sleutel (optioneel, betaald)
+    description: Extra bron voor transacties van Congresleden, inclusief partij.
+  x_bearer_token:
+    name: X (Twitter) bearer token (optioneel, betaald)
+    description: Om posts van belangrijke accounts op X te volgen.
+  x_accounts:
+    name: X-accounts om te volgen
+  publish_to_home_assistant:
+    name: Sensoren publiceren in Home Assistant
+  log_level:
+    name: Logniveau
+network:
+  8099/tcp: Dashboard direct openen zonder Home Assistant (optioneel)

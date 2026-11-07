@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/">
+<channel>
+<title>"stock market" when:1h - Google News</title>
+<link>https://news.google.com/search?q=stock+market</link>
+<item>
+<title>Example Robotics shares jump after record quarter, raises guidance - Reuters</title>
+<link>https://news.google.com/rss/articles/CBMiAAA?oc=5</link>
+<guid isPermaLink="false">CBMiAAA</guid>
+<pubDate>Sat, 07 Nov 2026 13:20:00 GMT</pubDate>
+<description>&lt;a href="https://news.google.com/rss/articles/CBMiAAA"&gt;Example Robotics shares jump&lt;/a&gt;</description>
+<source url="https://www.reuters.com">Reuters</source>
+</item>
+<item>
+<title>Example Robotics stock jumps after record quarter and raised guidance - CNBC</title>
+<link>https://news.google.com/rss/articles/CBMiBBB?oc=5</link>
+<guid isPermaLink="false">CBMiBBB</guid>
+<pubDate>Sat, 07 Nov 2026 13:25:00 GMT</pubDate>
+<source url="https://www.cnbc.com">CNBC</source>
+</item>
+<item>
+<title>This PENNY STOCK Could Make You A MILLIONAIRE Before It's Too Late! - StockHypeDaily</title>
+<link>https://news.google.com/rss/articles/CBMiCCC?oc=5</link>
+<guid isPermaLink="false">CBMiCCC</guid>
+<pubDate>Sat, 07 Nov 2026 13:28:00 GMT</pubDate>
+<source url="https://stockhypedaily.example">StockHypeDaily</source>
+</item>
+</channel>
+</rss>

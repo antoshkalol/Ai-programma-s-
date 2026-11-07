@@ -1,0 +1,355 @@
+"""Samenvatting van wat er het afgelopen halfuur binnenkwam.
+
+Met een Anthropic API-sleutel schrijft Claude de samenvatting (en markeert hij hype/geruchten).
+Zonder sleutel maakt de app zelf een automatische samenvatting op basis van de data.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import re
+from collections import defaultdict
+from datetime import timedelta
+
+from .db import Database, iso, utcnow
+from .scoring import fmt_usd
+
+log = logging.getLogger(__name__)
+
+EFFORT_UNSUPPORTED_PREFIXES = (
+    "claude-3", "claude-haiku-4", "claude-sonnet-4-5", "claude-sonnet-4-2", "claude-opus-4-1", "claude-opus-4-2",
+)
+TICKER_OK = re.compile(r"^[A-Z0-9][A-Z0-9.\-]{0,11}$")
+
+SYSTEM_PROMPT = """Je bent een nuchtere financieel analist. Elk halfuur schrijf je een korte briefing voor een \
+particuliere belegger die een dashboard op een monitor bekijkt. Je krijgt als JSON: het nieuws en de posts van het \
+afgelopen halfuur (met betrouwbaarheid van de bron en het aantal bronnen dat hetzelfde meldt), nieuw gemelde \
+aandelentransacties van politici en bedrijfsinsiders, en de huidige top van aandelen volgens het scoremodel van het \
+dashboard (met koerstrend en instapmoment).
+
+Regels:
+- Baseer je uitsluitend op de aangeleverde gegevens. Verzin geen cijfers, koersen, namen of gebeurtenissen.
+- Scheid feiten van geruchten. Iets dat alleen door een minder betrouwbare bron of een enkele X-post wordt gemeld, \
+noem je onbevestigd.
+- unreliable_items: geef de indexnummers ("i") van berichten die hype, clickbait, promotie (pump), ongefundeerde \
+geruchten of irrelevant voor beleggers zijn. Laat de lijst leeg als alles in orde is.
+- Transacties van politici worden tot 45 dagen na de transactie gemeld; zeg dat als je ze noemt. Bij insiders zeggen \
+aankopen meer dan verkopen, en 10b5-1-plannen zijn vooraf ingepland en dus minder informatief.
+- tickers: geef voor elk aandeel dat duidelijk in het nieuws of de transacties voorkomt een sentiment van -1 (zeer \
+negatief) tot 1 (zeer positief), met een reden van maximaal 15 woorden.
+- buy_view: bespreek in 2 tot 4 zinnen welke aandelen uit de top er nu het interessantst uitzien, gezien score, \
+koerstrend en instapmoment, en noem het grootste risico. Geef nooit garanties en formuleer het als inschatting; dit \
+is geen beleggingsadvies.
+- key_points: 3 tot 7 punten van maximaal 30 woorden, belangrijkste eerst. Was er weinig nieuws, zeg dat dan gewoon.
+- headline: een zin die het halfuur samenvat."""
+
+OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "headline": {"type": "string"},
+        "market_mood": {"type": "string", "enum": ["positief", "neutraal", "negatief", "gemengd"]},
+        "key_points": {"type": "array", "items": {"type": "string"}},
+        "notable_trades": {"type": "array", "items": {"type": "string"}},
+        "tickers": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "ticker": {"type": "string"},
+                    "sentiment": {"type": "number"},
+                    "reason": {"type": "string"},
+                },
+                "required": ["ticker", "sentiment", "reason"],
+                "additionalProperties": False,
+            },
+        },
+        "watch_out": {"type": "array", "items": {"type": "string"}},
+        "unreliable_items": {"type": "array", "items": {"type": "integer"}},
+        "buy_view": {"type": "string"},
+    },
+    "required": [
+        "headline", "market_mood", "key_points", "notable_trades", "tickers", "watch_out", "unreliable_items",
+        "buy_view",
+    ],
+    "additionalProperties": False,
+}
+
+
+def describe_trade(t: dict) -> str:
+    action = {"buy": "kocht", "sell": "verkocht"}.get(t["tx_type"], "meldde transactie in")
+    if t["actor_type"] == "politician" and t.get("value_low"):
+        amount = (f"{fmt_usd(t['value_low'])}-{fmt_usd(t['value_high'])}" if t.get("value_high")
+                  else f"meer dan {fmt_usd(t['value_low'])}")
+    else:
+        amount = fmt_usd(t.get("value_usd"))
+    what = t.get("ticker") or t.get("company") or "onbekend"
+    role = f" ({t['actor_role']})" if t.get("actor_role") else ""
+    plan = " [10b5-1 plan]" if t.get("planned") else ""
+    return f"{t['actor_name']}{role} {action} {what} voor {amount}{plan}"
+
+
+class Summarizer:
+    def __init__(self, cfg, db: Database, ingestor=None):
+        self.cfg = cfg
+        self.db = db
+        self.ingestor = ingestor
+        self._client = None
+
+    # ------------------------------------------------------------------ data
+    def gather(self, start: str, end: str) -> dict:
+        rows = self.db.query(
+            "SELECT id, source, domain, kind, title, credibility, corroboration, cluster_id, tickers, sentiment,"
+            " published_at FROM news WHERE is_junk=0 AND kind != 'post' AND published_at >= ? AND published_at <= ? "
+            "ORDER BY (credibility * corroboration) DESC LIMIT 150",
+            (start, end),
+        )
+        # Eén bericht per verhaal (cluster): het meest geloofwaardige; 'corroboration' telt de bronnen
+        news, seen_clusters = [], set()
+        for r in rows:
+            key = r["cluster_id"] or r["id"]
+            if key in seen_clusters:
+                continue
+            seen_clusters.add(key)
+            news.append(r)
+        news = news[:60]
+        posts = self.db.query(
+            "SELECT id, source, author, title, tickers, published_at, credibility FROM news "
+            "WHERE is_junk=0 AND kind='post' AND published_at >= ? AND published_at <= ? "
+            "ORDER BY published_at DESC LIMIT 30",
+            (start, end),
+        )
+        filtered = self.db.query_one(
+            "SELECT COUNT(*) n FROM news WHERE is_junk=1 AND published_at >= ? AND published_at <= ?", (start, end)
+        )["n"]
+        trades = self.db.query(
+            "SELECT * FROM trades WHERE created_at >= ? AND created_at <= ? AND tx_type IN ('buy','sell') "
+            "ORDER BY COALESCE(value_usd, 0) DESC LIMIT 40",
+            (start, end),
+        )
+        big_trades = [
+            t for t in trades
+            if (t["value_usd"] or 0) >= self.cfg.min_trade_value_usd or t["actor_type"] == "politician"
+        ]
+        scores = self.db.query("SELECT * FROM scores_latest ORDER BY score DESC LIMIT 8")
+        for s in scores:
+            s["reasons"] = json.loads(s["reasons"] or "[]")
+        for n in news + posts:
+            n["tickers"] = json.loads(n["tickers"] or "[]")
+        return {"news": news, "posts": posts, "filtered": filtered, "trades": big_trades or trades[:10],
+                "scores": scores}
+
+    # ------------------------------------------------------------------ run
+    def run(self, now=None) -> int:
+        end_dt = now or utcnow()
+        start_dt = end_dt - timedelta(minutes=self.cfg.summary_interval_minutes)
+        start, end = iso(start_dt), iso(end_dt)
+        data = self.gather(start, end)
+        content, method = None, "automatisch"
+        if self.cfg.llm_enabled:
+            try:
+                content = self.llm_summary(data, start, end)
+                method = "ai"
+            except Exception as exc:  # noqa: BLE001 - dan valt hij terug op de automatische samenvatting
+                log.error("AI-samenvatting mislukt, automatische samenvatting gebruikt: %s", exc)
+                content = None
+        if content is None:
+            content = self.extractive_summary(data)
+        content["stats"] = {
+            "news": len(data["news"]),
+            "posts": len(data["posts"]),
+            "filtered": data["filtered"],
+            "trades": len(data["trades"]),
+        }
+        if method == "ai":
+            content["model"] = self.cfg.anthropic_model
+        self.db.execute(
+            "INSERT INTO summaries(period_start, period_end, created_at, method, content) VALUES (?,?,?,?,?)",
+            (start, end, iso(utcnow()), method, json.dumps(content, ensure_ascii=False)),
+        )
+        return 1
+
+    # ------------------------------------------------------------------ AI
+    def client(self):
+        if self._client is None:
+            import anthropic
+
+            self._client = anthropic.Anthropic(api_key=self.cfg.anthropic_api_key, timeout=180.0, max_retries=2)
+        return self._client
+
+    def build_payload(self, data: dict, start: str, end: str) -> tuple[str, list[str]]:
+        index_ids: list[str] = []
+        news = []
+        for n in data["news"] + data["posts"]:
+            index_ids.append(n["id"])
+            news.append(
+                {
+                    "i": len(index_ids) - 1,
+                    "type": "x-post" if n.get("author") else n.get("kind", "news"),
+                    "bron": n.get("source"),
+                    "betrouwbaarheid": round(n.get("credibility") or 0, 2),
+                    "aantal_bronnen": n.get("corroboration", 1),
+                    "tickers": n.get("tickers", []),
+                    "tijd": n.get("published_at"),
+                    "titel": n.get("title"),
+                }
+            )
+        trades = [
+            {
+                "beschrijving": describe_trade(t),
+                "type": "politicus" if t["actor_type"] == "politician" else "insider",
+                "transactiedatum": t.get("tx_date"),
+                "gemeld": t.get("filed_at"),
+            }
+            for t in data["trades"]
+        ]
+        scores = [
+            {
+                "ticker": s["ticker"],
+                "score": s["score"],
+                "kans_omhoog_1mnd": s["prob_up"],
+                "instapmoment": s["timing"],
+                "koers": s["price"],
+                "redenen": s["reasons"][:4],
+            }
+            for s in data["scores"]
+        ]
+        lang = "Nederlands" if self.cfg.summary_language.lower().startswith("nl") else "English"
+        payload = {
+            "periode": {"van": start, "tot": end},
+            "taal": lang,
+            "nieuws_en_posts": news,
+            "gefilterde_berichten": data["filtered"],
+            "nieuwe_transacties": trades,
+            "top_scores": scores,
+        }
+        text = (
+            f"Schrijf de briefing in het {lang}.\n\n" + json.dumps(payload, ensure_ascii=False, indent=1)
+        )
+        return text, index_ids
+
+    def llm_summary(self, data: dict, start: str, end: str) -> dict:
+        text, index_ids = self.build_payload(data, start, end)
+        output_config: dict = {"format": {"type": "json_schema", "schema": OUTPUT_SCHEMA}}
+        if not self.cfg.anthropic_model.startswith(EFFORT_UNSUPPORTED_PREFIXES):
+            output_config["effort"] = self.cfg.anthropic_effort
+        kwargs = dict(
+            model=self.cfg.anthropic_model,
+            max_tokens=16000,
+            system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
+            messages=[{"role": "user", "content": text}],
+            output_config=output_config,
+        )
+        client = self.client()
+        if self.cfg.model_supports_fallback:
+            # Bij een (zeldzame) weigering laat de API een ander model het verzoek afmaken
+            resp = client.beta.messages.create(betas=["server-side-fallback-2026-07-01"], fallbacks="default", **kwargs)
+        else:
+            resp = client.messages.create(**kwargs)
+        if resp.stop_reason in ("refusal", "max_tokens"):
+            raise RuntimeError(f"AI stopte met stop_reason={resp.stop_reason}")
+        out_text = next((b.text for b in resp.content if b.type == "text"), None)
+        if not out_text:
+            raise RuntimeError("AI gaf geen tekst terug")
+        result = json.loads(out_text)
+        self._apply_ai_side_effects(result, index_ids)
+        result.pop("unreliable_items", None)
+        return result
+
+    def _apply_ai_side_effects(self, result: dict, index_ids: list[str]) -> None:
+        now = iso(utcnow())
+        rows = []
+        for t in result.get("tickers", []):
+            tk = str(t.get("ticker", "")).upper().strip().lstrip("$")
+            if not TICKER_OK.match(tk):
+                continue
+            try:
+                s = max(-1.0, min(1.0, float(t.get("sentiment", 0))))
+            except (TypeError, ValueError):
+                continue
+            rows.append((tk, now, s, str(t.get("reason", ""))[:200]))
+        self.db.executemany(
+            "INSERT INTO ticker_sentiment(ticker, created_at, sentiment, reason) VALUES (?,?,?,?)", rows
+        )
+        bad = [index_ids[i] for i in result.get("unreliable_items", []) if isinstance(i, int) and 0 <= i < len(index_ids)]
+        if bad and self.ingestor is not None:
+            self.ingestor.mark_unreliable(bad)
+        result["filtered_by_ai"] = len(bad)
+
+    # ------------------------------------------------------------------ zonder AI
+    def extractive_summary(self, data: dict) -> dict:
+        news = data["news"]
+        posts = data["posts"]
+        key_points = []
+        for n in news[:6]:
+            extra = f" ({n['corroboration']} bronnen)" if (n.get("corroboration") or 1) > 1 else ""
+            key_points.append(f"{n['title']} - {n['source']}{extra}")
+        for p in posts[:2]:
+            key_points.append(f"{p['source']}: {p['title'][:160]}")
+        if not key_points:
+            key_points = ["Rustig halfuur: geen nieuwe geloofwaardige berichten binnengekomen."]
+
+        sentiments = [n["sentiment"] for n in news if n.get("sentiment") is not None]
+        avg = sum(sentiments) / len(sentiments) if sentiments else 0.0
+        pos = sum(1 for s in sentiments if s > 0.15)
+        neg = sum(1 for s in sentiments if s < -0.15)
+        if not sentiments:
+            mood = "neutraal"
+        elif pos and neg and abs(pos - neg) <= max(1, len(sentiments) // 5):
+            mood = "gemengd"
+        else:
+            mood = "positief" if avg > 0.1 else "negatief" if avg < -0.1 else "neutraal"
+
+        per_ticker: dict[str, list[float]] = defaultdict(list)
+        for n in news:
+            for t in n["tickers"]:
+                per_ticker[t].append(n["sentiment"] or 0)
+        tickers = [
+            {"ticker": t, "sentiment": round(sum(v) / len(v), 2), "reason": f"{len(v)} bericht(en) in dit halfuur"}
+            for t, v in sorted(per_ticker.items(), key=lambda x: -len(x[1]))[:8]
+        ]
+        trades = [describe_trade(t) for t in data["trades"][:6]]
+        if any(t["actor_type"] == "politician" for t in data["trades"]):
+            trades.append("Let op: politici melden transacties tot 45 dagen later.")
+
+        top = [s for s in data["scores"] if s["score"] >= 55][:3]
+        if top:
+            parts = [
+                f"{s['ticker']} (score {s['score']:.0f}, kans omhoog ~{s['prob_up'] * 100:.0f}%, {s['timing'].lower()})"
+                for s in top
+            ]
+            buy_view = (
+                "Hoogste scores op dit moment: " + "; ".join(parts) + ". "
+                "Dit is een modelinschatting op basis van insider- en politici-aankopen, nieuws en koerstrend; "
+                "geen beleggingsadvies."
+            )
+        else:
+            buy_view = "Geen aandelen met een duidelijk positief totaalsignaal op dit moment."
+
+        watch = []
+        if data["filtered"]:
+            watch.append(f"{data['filtered']} bericht(en) weggefilterd als onbetrouwbaar of clickbait.")
+        for n in news:
+            if (n.get("sentiment") or 0) <= -0.5 and n.get("tickers"):
+                watch.append(f"Negatief nieuws over {', '.join(n['tickers'][:3])}: {n['title']}")
+            if len(watch) >= 4:
+                break
+
+        headline = news[0]["title"] if news else "Rustig halfuur zonder groot nieuws"
+        return {
+            "headline": headline,
+            "market_mood": mood,
+            "key_points": key_points,
+            "notable_trades": trades,
+            "tickers": tickers,
+            "watch_out": watch,
+            "buy_view": buy_view,
+        }
+
+
+def latest_summary(db: Database) -> dict | None:
+    row = db.query_one("SELECT * FROM summaries ORDER BY id DESC LIMIT 1")
+    if not row:
+        return None
+    row["content"] = json.loads(row["content"])
+    return row
