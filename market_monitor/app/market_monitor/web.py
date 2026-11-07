@@ -98,6 +98,8 @@ def create_app(monitor) -> Flask:
                 "job_markets": monitor.job_markets,
                 "config": cfg.public_dict(),
                 "calibration": db.get_state(f"calibration_{market}"),
+                "recommendation": db.get_state(f"recommendation_{market}"),
+                "notify": {"service": cfg.notify_service or "automatisch", "in_home_assistant": monitor.hass.enabled},
             }
         )
 
@@ -223,6 +225,26 @@ def create_app(monitor) -> Flask:
         if not db.execute("UPDATE alerts SET acknowledged=1 WHERE id=?", (alert_id,)):
             abort(404)
         return jsonify({"ok": True})
+
+    @app.get("/api/recommendation")
+    def recommendation():
+        market = _market()
+        rec = monitor.recommender.current(market)
+        if rec is None and db.query_one("SELECT 1 FROM scores_latest WHERE market=?", (market,)):
+            # Nog niet berekend sinds de start: nu doen
+            monitor.recommender.update(market)
+            rec = monitor.recommender.current(market)
+        comment = None
+        s = latest_summary(db, market)
+        if s and rec:
+            comment = s["content"].get("recommendation_comment")
+        return jsonify({"market": market, "label": MARKET_LABELS[market], "recommendation": rec,
+                        "ai_comment": comment, "comment_method": s["method"] if s else None,
+                        "history": monitor.recommender.history(market)})
+
+    @app.post("/api/notify/test")
+    def notify_test():
+        return jsonify(monitor.hass.send_test())
 
     @app.post("/api/run/<job>")
     def run_job(job: str):

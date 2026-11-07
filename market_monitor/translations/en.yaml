@@ -4,9 +4,11 @@ configuration:
     description: Required by the SEC, e.g. "Jane Doe jane@example.com". Only sent to sec.gov.
   notify_service:
     name: "Notifications: notify service of your phone"
-    description: e.g. mobile_app_janes_iphone. Emergency alerts and (optionally) the hourly summary go here.
+    description: Empty = all phones with the Home Assistant app. Or e.g. mobile_app_janes_iphone (comma-separated).
   notify_summaries:
-    name: "Notifications: hourly summary as push"
+    name: "Notifications: hourly summary as popup"
+  quiet_hours:
+    name: "Notifications: quiet hours for the hourly summary (e.g. 23-7)"
   alerts_enabled:
     name: "Notifications: emergency alerts on"
   alert_sensitivity:

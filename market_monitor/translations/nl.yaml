@@ -5,12 +5,15 @@ configuration:
       Verplicht door de SEC voor insidermeldingen en bedrijfsaankopen van crypto. Vul in als
       "Jan Jansen jan@voorbeeld.nl". Wordt alleen naar sec.gov gestuurd.
   notify_service:
-    name: "Meldingen: notify-service van je telefoon"
+    name: "Meldingen: telefoon(s)"
     description: >-
-      Bijvoorbeeld mobile_app_iphone_van_jan (zie Ontwikkelhulpmiddelen > Acties > notify.*). Daar komen de
-      noodmeldingen en (optioneel) de uurlijkse samenvatting binnen.
+      Leeg laten = automatisch alle telefoons met de Home Assistant-app. Of vul zelf in, bv.
+      mobile_app_iphone_van_jan (meerdere met komma's). Test via de knop Testmelding in het dashboard.
   notify_summaries:
-    name: "Meldingen: samenvatting elk uur als pushbericht"
+    name: "Meldingen: uurbericht als popup op je telefoon"
+  quiet_hours:
+    name: "Meldingen: stille uren voor het uurbericht"
+    description: Bijvoorbeeld 23-7 = geen uurbericht tussen 23:00 en 07:00. Noodmeldingen komen altijd door. Leeg = altijd.
   alerts_enabled:
     name: "Meldingen: noodmeldingen aan"
     description: Direct een alert als er iets groots aan lijkt te komen (koersexplosie, groot nieuws, insiders die samen kopen, ...).

@@ -13,6 +13,9 @@ met een duidelijke splitsing tussen de twee (tabbladen *Aandelen* en *Crypto*).
 - **Politici en insiders die crypto-ETF's of -aandelen kopen**, zoals IBIT of MSTR.
 
 **Voor beide markten**
+- **Aanbeveling met technische analyse:** het beste aandeel en de beste munt van dat moment, met de vraag of je
+  moet **longen of shorten**. Op de koersgrafiek worden de analyse en de verwachting getekend.
+- **Popup-meldingen op je telefoon:** elk uur een update, en direct een noodmelding als er iets belangrijks gebeurt.
 - **Nieuws van het hele web** (betrouwbare media, Google News, GDELT en optioneel X), met een filter dat
   onbetrouwbare bronnen, clickbait en hype eruit haalt. Bij crypto worden ook presales en "next 100x"-promotie
   weggefilterd.
@@ -26,6 +29,8 @@ Het draait als add-on op **Home Assistant OS** (bijvoorbeeld op een Raspberry Pi
 in de zijbalk.
 
 ![Aandelen (demodata met verzonnen namen)](docs/screenshot.png)
+
+![Aanbeveling met technische analyse (demodata)](docs/screenshot-aanbeveling.png)
 
 <details><summary>Crypto-tabblad en detailweergave</summary>
 
@@ -51,10 +56,8 @@ in de zijbalk.
    paar minuten.
 5. Vul in het tabblad **Configuratie** minimaal in:
    - **`sec_user_agent`**: je naam en e-mailadres, bijvoorbeeld `Jan Jansen jan@voorbeeld.nl`.
-   - **`notify_service`**: de notify-service van je telefoon, bijvoorbeeld `mobile_app_iphone_van_jan`. Daarmee
-     komen de uurberichten en noodmeldingen op je telefoon. De naam vind je bij **Ontwikkelhulpmiddelen → Acties**
-     door `notify.` te typen. Hiervoor moet de Home Assistant-app op je telefoon staan.
 6. Zet **Toon in zijbalk** aan en klik op **Starten**.
+7. Klik in het dashboard op **Testmelding**. Krijg je een popup op je telefoon, dan werkt alles (zie hieronder).
 
 ### Optie B: lokaal, zonder GitHub
 
@@ -68,12 +71,27 @@ minuten na de start, daarna elk heel uur.
 
 ---
 
-## Meldingen
+## Meldingen op je telefoon (popups)
 
-| Soort | Wanneer | Hoe |
+De meldingen gaan naar de **Home Assistant-app** op je telefoon (App Store / Google Play). Log in met je
+Home Assistant en sta meldingen toe. Meer is er niet nodig:
+- **Automatisch:** met `notify_service` leeg stuurt de add-on naar alle telefoons waarop de app is ingelogd.
+- **Eén telefoon:** wil je maar één telefoon, vul dan bijvoorbeeld `mobile_app_iphone_van_jan` in (meerdere met
+  komma's). De naam vind je bij **Ontwikkelhulpmiddelen → Acties** door `notify.mobile_app` te typen.
+- **Testen:** klik in het dashboard op **Testmelding**.
+
+| Soort | Wanneer | Hoe het binnenkomt |
 |---|---|---|
-| **Uurbericht** | Elk heel uur (instelbaar met `summary_interval_minutes`) | Eén gewoon pushbericht met de kop van beide markten en de beste kans per markt |
-| **Noodmelding** | Direct, zodra een detector afgaat (wordt elke 2 minuten gecontroleerd) | Pushbericht met hoge prioriteit. Met `alert_critical` aan komt het ook door stil/niet storen heen (iPhone: kritieke melding, Android: alarmgeluid). Daarnaast een melding in Home Assistant en een rode balk bovenaan het dashboard, eventueel met geluid. |
+| **Uurbericht** | Elk heel uur (instelbaar met `summary_interval_minutes`) | Als popup (iPhone: banner, Android: zwevende melding), met de kop en de aanbeveling per markt. Een nieuw uurbericht vervangt het vorige, zodat ze zich niet opstapelen. Met `quiet_hours: 23-7` komt er 's nachts geen uurbericht. |
+| **Noodmelding** | Direct, zodra een detector afgaat (wordt elke 2 minuten gecontroleerd) | Als popup met hoge prioriteit, elke melding apart. Met `alert_critical` aan komt hij ook door stil/niet storen heen (iPhone: kritieke melding, Android: alarmgeluid). Daarnaast een melding in Home Assistant en een rode balk bovenaan het dashboard, eventueel met geluid. |
+
+Tik op een melding of op **Open dashboard** om meteen het dashboard te openen.
+
+**Zie je geen popup?**
+- **iPhone:** controleer Instellingen → Meldingen → Home Assistant → *Stijl: Banners*. Voor kritieke meldingen
+  moet je die daar eenmalig toestaan.
+- **Android:** controleer Instellingen → Apps → Home Assistant → Meldingen. De kanalen *Market Monitor* en
+  *Market Monitor noodmelding* moeten op *Pop-up op scherm* staan. Ze verschijnen na de eerste melding.
 
 ### Wanneer komt er een noodmelding?
 
@@ -103,6 +121,55 @@ gebeurd zijn.
 
 ---
 
+## Aanbeveling: long of short, met technische analyse
+
+Het tabblad **Aanbeveling** toont per markt de beste kandidaat van dat moment. Elk kwartier kijkt de add-on
+naar de aandelen of munten met de meest uitgesproken koopscore (ver van 50, omhoog of omlaag). Daarvan wint de
+kandidaat waarbij model en techniek het overtuigendst dezelfde kant op wijzen.
+
+**Richting**
+- **LONG ▲:** kopen; je verdient als de koers stijgt.
+- **SHORT ▼:** inzetten op een daling, bijvoorbeeld via CFD's, futures of short-ETF's.
+- **AFWACHTEN:** geen duidelijke richting.
+
+De richting komt voor 60% uit de koopscore en voor 40% uit de technische stemming.
+
+**Plan**
+- **Instapzone.** Is het aandeel oververhit (RSI boven 70), dan raadt het plan aan te wachten op een terugval;
+  bij een short op een opleving.
+- **Stop-loss:** net voorbij het dichtstbijzijnde steun- of weerstandsniveau.
+- **Doel 1 en doel 2:** volgende niveaus of de trendrichting.
+- **Risico/rendement:** minimaal 1 : 1,2.
+- **Kans:** de kans op stijging of daling.
+- **Horizon:** ongeveer 20 koersdagen.
+
+**Wat er op de grafiek staat**
+
+| Element | Betekenis |
+|---|---|
+| Koers + SMA 20 + SMA 50 | Korte en langere trend |
+| Grijze band | Bollinger-band (20 dagen, ±2σ): hoe ver de koers normaal uitslaat |
+| Stippellijnen | Trendkanaal (regressie over 60 dagen) |
+| Horizontale grijze lijnen | Steun en weerstand: niveaus die meerdere keren getest zijn |
+| Grijs vlak rechts van "nu" | Instapzone |
+| Rode / groene lijn | Stop-loss / koersdoelen |
+| Gekleurde kegel | Verwachte bandbreedte (±1σ) voor de komende ~20 dagen |
+| Gestippelde lijn met punt | Het scenario richting doel 1 en doel 2 |
+| Strook onder de grafiek | RSI (boven 70 oververhit, onder 30 oversold) |
+
+Daaronder staan de technische signalen (trend, MACD, RSI, Bollinger, steun/weerstand) en de redenen achter de
+koopscore. Met een API-sleutel geeft Claude elk uur commentaar: steunen nieuws en transacties de richting, en wat
+is het grootste risico? Eerdere aanbevelingen worden bewaard, met hun resultaat ("doel 1 gehaald",
+"stop geraakt" of "loopt").
+
+De aanbeveling staat ook in het uurbericht op je telefoon en in de sensor
+`sensor.market_monitor_<markt>_recommendation`.
+
+> Shorten is riskanter dan kopen: je verlies kan groter zijn dan je inleg. Technische analyse is een
+> hulpmiddel, geen glazen bol. Gebruik altijd een stop-loss.
+
+---
+
 ## Configuratie
 
 **Algemeen en meldingen**
@@ -110,8 +177,9 @@ gebeurd zijn.
 | Optie | Uitleg |
 |---|---|
 | `sec_user_agent` | **Verplicht** voor SEC-data (insiders en crypto-bedrijfsaankopen). Je naam en e-mailadres. Gaat alleen naar sec.gov. |
-| `notify_service` | De notify-service van je telefoon, zie hierboven. |
-| `notify_summaries` | Het uurbericht als pushbericht sturen (standaard aan). |
+| `notify_service` | Leeg = automatisch alle telefoons met de Home Assistant-app; of zelf invullen, zie hierboven. |
+| `notify_summaries` | Het uurbericht als popup sturen (standaard aan). |
+| `quiet_hours` | Bijvoorbeeld `23-7`: dan geen uurbericht tussen 23:00 en 07:00 (noodmeldingen komen wel). Leeg = altijd. |
 | `alerts_enabled`, `alert_sensitivity`, `alert_critical`, `ai_check_alerts`, `max_alerts_per_day` | Instellingen van de noodmeldingen (zie hierboven). |
 | `anthropic_api_key` | Optioneel. Sleutel van [console.anthropic.com](https://console.anthropic.com) voor AI-samenvattingen en de AI-controle. Zonder sleutel krijg je een automatische samenvatting (gratis). |
 | `anthropic_model`, `anthropic_effort` | Het Claude-model en hoe grondig het nadenkt. Standaard `claude-opus-5-5` en `medium`. |
@@ -214,6 +282,7 @@ maanden draaien), wordt de kans **gekalibreerd** op die echte resultaten.
 | `sensor.market_monitor_stocks_top_pick` / `..._crypto_top_pick` | Hoogste koopscore | `score`, `kans_omhoog`, `instapmoment`, `redenen`, `top5` |
 | `sensor.market_monitor_stocks_summary` / `..._crypto_summary` | Kop van de laatste samenvatting | `kernpunten`, `transacties`, `koopvisie`, `let_op`, `stemming`, `tekst` |
 | `sensor.market_monitor_stocks_last_big_trade` / `..._crypto_last_big_trade` | Laatste grote transactie | `actor_name`, `ticker`, `tx_type`, `value_usd`, `url` |
+| `sensor.market_monitor_stocks_recommendation` / `..._crypto_recommendation` | Bijv. `LONG NVDA` of `AFWACHTEN (BTC)` | `entry_low`, `entry_high`, `stop`, `target1`, `target2`, `rr`, `prob`, `conviction`, `signals` |
 | `sensor.market_monitor_alert` | Laatste noodmelding | `market`, `asset`, `kind`, `message`, `ai_note` |
 | `sensor.market_monitor_status` | `ok` of `fout` | `bronnen_met_fouten` |
 
@@ -223,7 +292,7 @@ maanden draaien), wordt de kans **gekalibreerd** op die echte resultaten.
 - `market_monitor_summary`: bij elke nieuwe samenvatting (met `market`).
 - `market_monitor_big_trade`: bij elke nieuwe transactie boven `big_trade_alert_usd`.
 
-Pushberichten werken al zonder automatisering als `notify_service` is ingevuld. Met de events kun je meer doen,
+Pushberichten werken zonder automatisering. Met de events kun je meer doen,
 bijvoorbeeld een lamp laten knipperen bij een noodmelding:
 
 ```yaml
@@ -258,7 +327,7 @@ content: |
 ### Op een aparte monitor
 
 - Open het paneel **Market Monitor** en klik op **Volledig scherm**.
-- Zet **Wissel** aan om automatisch elke 45 seconden te wisselen tussen aandelen en crypto.
+- Zet **Wissel** aan om automatisch elke 45 seconden te wisselen tussen aandelen, crypto en de aanbeveling.
 - Zet **Geluid** aan voor een pieptoon bij een noodmelding. De browser vraagt hiervoor eenmalig een klik.
 - Zonder inloggen: zet in het tabblad **Netwerk** van de add-on een poort open (bijvoorbeeld 8099) en open
   `http://<ip-van-je-pi>:8099#rotate`.
@@ -314,9 +383,10 @@ market_monitor/                 de add-on
     filtering.py                nieuwsfilter (betrouwbaarheid, clickbait, bevestiging)
     tickers.py, sentiment.py    aandelen en munten herkennen, sentiment
     scoring.py                  koopscore aandelen en crypto, kans, instapmoment, kalibratie
+    technical.py, recommend.py  technische analyse en aanbeveling (long/short, instap, stop, doelen)
     summary.py                  samenvatting per markt (Claude of automatisch)
     alerts.py                   noodmeldingen (detectoren, afkoelperiode, daglimiet, AI-controle)
-    hass.py                     sensoren, events en pushberichten naar Home Assistant
+    hass.py                     sensoren, events en popup-meldingen naar je telefoon
     web.py, static/             dashboard en API
   app/tests/                    tests met voorbeeldbestanden
 ```

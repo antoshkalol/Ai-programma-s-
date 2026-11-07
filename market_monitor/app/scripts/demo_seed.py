@@ -20,6 +20,7 @@ from market_monitor.alerts import AlertEngine  # noqa: E402
 from market_monitor.config import load_config  # noqa: E402
 from market_monitor.db import Database, iso, utcnow  # noqa: E402
 from market_monitor.filtering import NewsIngestor  # noqa: E402
+from market_monitor.recommend import Recommender  # noqa: E402
 from market_monitor.scoring import CryptoScoringEngine, ScoringEngine  # noqa: E402
 from market_monitor.summary import Summarizer  # noqa: E402
 from market_monitor.tickers import TickerExtractor  # noqa: E402
@@ -188,6 +189,9 @@ def main(data_dir: str) -> None:
 
     ScoringEngine(cfg, db).run()
     CryptoScoringEngine(cfg, db).run()
+    rec = Recommender(cfg, db)
+    rec.update("stocks")
+    rec.update("crypto")
     Summarizer(cfg, db, ing).run()
     sent = AlertEngine(cfg, db).run()
     print(f"Demo-database klaar in {db_path} ({sent} noodmeldingen)")

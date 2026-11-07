@@ -46,7 +46,10 @@ van -1 (zeer negatief) tot 1 (zeer positief), met een reden van maximaal 15 woor
 koerstrend en instapmoment, en noem het grootste risico. Geef nooit garanties en formuleer het als inschatting; dit \
 is geen beleggingsadvies.
 - key_points: 3 tot 7 punten van maximaal 30 woorden, belangrijkste eerst. Was er weinig nieuws, zeg dat dan gewoon.
-- headline: een zin die de periode samenvat."""
+- headline: een zin die de periode samenvat.
+- recommendation_comment: 2 tot 3 zinnen over "aanbeveling" (de technische analyse van het dashboard: long, short of \
+afwachten, met instap, stop en doelen). Zeg of het nieuws en de transacties de richting ondersteunen of juist \
+tegenspreken, en noem het grootste risico. Herhaal niet alle getallen. Schrijf "geen aanbeveling" als die ontbreekt."""
 
 OUTPUT_SCHEMA = {
     "type": "object",
@@ -71,10 +74,11 @@ OUTPUT_SCHEMA = {
         "watch_out": {"type": "array", "items": {"type": "string"}},
         "unreliable_items": {"type": "array", "items": {"type": "integer"}},
         "buy_view": {"type": "string"},
+        "recommendation_comment": {"type": "string"},
     },
     "required": [
         "headline", "market_mood", "key_points", "notable_trades", "tickers", "watch_out", "unreliable_items",
-        "buy_view",
+        "buy_view", "recommendation_comment",
     ],
     "additionalProperties": False,
 }
@@ -96,6 +100,13 @@ def describe_trade(t: dict) -> str:
         return f"{t['actor_name']}{role} {action} {amount}"
     plan = " [10b5-1 plan]" if t.get("planned") else ""
     return f"{t['actor_name']}{role} {action} {what} voor {amount}{plan}"
+
+
+def recommendation_payload(rec: dict | None) -> dict | None:
+    if not rec:
+        return None
+    return {k: rec.get(k) for k in ("ticker", "label", "action", "conviction", "price", "entry_low", "entry_high",
+                                     "stop", "target1", "target2", "rr", "prob", "signals")}
 
 
 def trades_sql(market: str) -> tuple[str, list]:
@@ -157,7 +168,7 @@ class Summarizer:
         for n in news + posts:
             n["tickers"] = json.loads(n["tickers"] or "[]")
         return {"news": news, "posts": posts, "filtered": filtered, "trades": big_trades or trades[:10],
-                "scores": scores}
+                "scores": scores, "recommendation": self.db.get_state(f"recommendation_{market}")}
 
     # ------------------------------------------------------------------ run
     def run(self, now=None) -> int:
@@ -276,6 +287,7 @@ class Summarizer:
             "gefilterde_berichten": data["filtered"],
             "nieuwe_transacties": trades,
             "top_scores": scores,
+            "aanbeveling": recommendation_payload(data.get("recommendation")),
         }
         text = f"Schrijf de briefing over de {MARKET_LABELS[market].lower()}markt in het {lang}.\n\n" + json.dumps(
             payload, ensure_ascii=False, indent=1
@@ -370,7 +382,15 @@ class Summarizer:
                 break
 
         headline = news[0]["title"] if news else "Rustige periode zonder groot nieuws"
+        rec = data.get("recommendation")
+        if rec:
+            sig = "; ".join(s[0].lower() + s[1:] for s in rec.get("signals", [])[:2])
+            rr = f" Risico/rendement {str(rec['rr']).replace('.', ',')}." if rec.get("rr") else ""
+            comment = f"{rec['label']} {rec['ticker']}: {sig}.{rr}"
+        else:
+            comment = "Nog geen aanbeveling (te weinig koershistorie)."
         return {
+            "recommendation_comment": comment,
             "headline": headline,
             "market_mood": mood,
             "key_points": key_points,

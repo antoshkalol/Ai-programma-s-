@@ -152,6 +152,21 @@ CREATE TABLE IF NOT EXISTS alerts (
 );
 CREATE INDEX IF NOT EXISTS idx_alerts_created ON alerts(created_at);
 
+CREATE TABLE IF NOT EXISTS recommendations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    market TEXT NOT NULL,
+    ticker TEXT NOT NULL,
+    direction TEXT NOT NULL,       -- long | short | neutral
+    created_at TEXT NOT NULL,
+    price REAL,
+    entry REAL,
+    stop REAL,
+    target1 REAL,
+    target2 REAL,
+    plan TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_reco ON recommendations(market, created_at);
+
 CREATE TABLE IF NOT EXISTS summaries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     market TEXT NOT NULL DEFAULT 'stocks',

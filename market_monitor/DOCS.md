@@ -10,16 +10,17 @@ dashboard vind je in de zijbalk, met aparte tabbladen voor **Aandelen** en **Cry
 
 1. Vul **`sec_user_agent`** in met je naam en e-mailadres, bijvoorbeeld `Jan Jansen jan@voorbeeld.nl`.
    De SEC eist dit; het wordt alleen naar sec.gov gestuurd.
-2. Vul **`notify_service`** in om berichten op je telefoon te krijgen, bijvoorbeeld `mobile_app_iphone_van_jan`.
-   De naam vind je bij **Ontwikkelhulpmiddelen → Acties** door `notify.` te typen.
+2. Installeer de **Home Assistant-app** op je telefoon, log in en sta meldingen toe. De add-on vindt je telefoon
+   automatisch. Klik na het starten in het dashboard op **Testmelding** om het te controleren.
 3. Optioneel: vul **`anthropic_api_key`** in voor AI-samenvattingen door Claude en een AI-controle van
    noodmeldingen. Zonder sleutel krijg je een automatische samenvatting (gratis).
 4. Pas **`stock_watchlist`** en **`crypto_watchlist`** aan met wat je wilt volgen.
 5. Start de add-on en zet **Toon in zijbalk** aan.
 
-## Meldingen
+## Meldingen (popups op je telefoon)
 
-- **Elk uur:** één gewoon pushbericht met de kop van beide markten (uitzetten met `notify_summaries: false`).
+- **Elk uur:** één popup met de kop en de aanbeveling van beide markten. Een nieuw uurbericht vervangt het vorige.
+  Uitzetten met `notify_summaries: false`; 's nachts stil met bijvoorbeeld `quiet_hours: 23-7`.
 - **Noodmelding:** direct en met hoge prioriteit, bijvoorbeeld bij:
   - een koersexplosie met volumepiek;
   - een zeer grote crypto-aankoop door een bedrijf;
@@ -30,6 +31,16 @@ dashboard vind je in de zijbalk, met aparte tabbladen voor **Aandelen** en **Cry
   Met `alert_critical: true` komt de melding ook door stil/niet storen heen.
 - **Minder of meer meldingen:** zet `alert_sensitivity` op `laag` (alleen heel uitzonderlijk) of `hoog`, en/of
   verlaag `max_alerts_per_day`.
+
+## Aanbeveling (long/short)
+
+Het tabblad **Aanbeveling** toont per markt de beste kandidaat:
+- **Richting:** LONG, SHORT of AFWACHTEN.
+- **Plan:** instapzone, stop-loss, twee koersdoelen, risico/rendement en de kans.
+- **Grafiek:** met technische analyse (trend, steun/weerstand, Bollinger, RSI) en de verwachte bandbreedte voor
+  de komende ~20 dagen.
+
+Shorten is riskant; gebruik altijd een stop-loss.
 
 ## Kosten van de AI
 
@@ -45,6 +56,8 @@ Ongeveer 48 aanvragen per dag (elk uur één per markt). Ruwe schatting per maan
 - **Laatste samenvatting per markt:** `sensor.market_monitor_stocks_summary` en `sensor.market_monitor_crypto_summary`.
 - **Laatste grote transactie per markt:** `sensor.market_monitor_stocks_last_big_trade` en
   `sensor.market_monitor_crypto_last_big_trade`.
+- **Aanbeveling per markt:** `sensor.market_monitor_stocks_recommendation` en
+  `sensor.market_monitor_crypto_recommendation`.
 - **Laatste noodmelding:** `sensor.market_monitor_alert`. Status van de add-on: `sensor.market_monitor_status`.
 - **Events:** `market_monitor_alert`, `market_monitor_summary` en `market_monitor_big_trade`, voor eigen
   automatiseringen (bijvoorbeeld een lamp laten knipperen).
@@ -53,8 +66,10 @@ Ongeveer 48 aanvragen per dag (elk uur één per markt). Ruwe schatting per maan
 
 - **Bovenin staat een ✕ bij een bron:** beweeg erover voor de foutmelding. Kijk ook in het tabblad **Logboek**.
 - **"SEC e-mail ontbreekt":** vul `sec_user_agent` in en herstart de add-on.
-- **Geen pushberichten:** controleer de naam van `notify_service`. Test hem eerst zelf via
-  Ontwikkelhulpmiddelen → Acties.
+- **Geen popup op je telefoon:** klik op **Testmelding** en lees de melding onderin het dashboard. Controleer
+  daarnaast de meldingsinstellingen van de Home Assistant-app op je telefoon:
+  - iPhone: stijl *Banners*;
+  - Android: kanaal *Market Monitor* op *Pop-up op scherm*.
 - **"CoinGecko: limiet bereikt":** maak een gratis demo-sleutel aan op coingecko.com en vul `coingecko_api_key` in.
 - **Geen AI-samenvatting:** controleer de API-sleutel en het tegoed. Bij een fout valt de add-on automatisch terug
   op de automatische samenvatting.

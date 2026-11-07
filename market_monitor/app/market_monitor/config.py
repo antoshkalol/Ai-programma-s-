@@ -87,8 +87,9 @@ class Config:
     x_bearer_token: str = ""
 
     # ---------------------------------------------------------------- Meldingen
-    notify_service: str = ""            # bv. mobile_app_iphone_van_jan
+    notify_service: str = ""            # leeg = automatisch alle telefoons met de HA-app; of bv. mobile_app_iphone
     notify_summaries: bool = True       # samenvatting elk uur als pushbericht
+    quiet_hours: str = ""               # bv. "23-7": dan geen uurbericht (noodmeldingen komen wel)
     alerts_enabled: bool = True
     alert_sensitivity: str = "normaal"  # laag | normaal | hoog
     alert_critical: bool = True         # noodmelding doorbreekt stil/niet-storen (iOS critical, Android alarm)

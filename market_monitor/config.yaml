@@ -1,10 +1,10 @@
 name: Market Monitor
-version: "0.2.0"
+version: "0.3.0"
 slug: market_monitor
 description: >-
   Volgt grote transacties op de aandelen- en cryptomarkt (politici, insiders, bedrijven, walvissen),
   filtert het nieuws op betrouwbaarheid, maakt elk uur een samenvatting en geeft direct een noodmelding
-  als er iets groots aan lijkt te komen.
+  als er iets groots aan lijkt te komen, met een aanbeveling (long/short) en technische analyse.
 url: https://github.com/antoshkalol/Ai-programma-s-
 arch:
   - aarch64
@@ -17,6 +17,7 @@ ingress_port: 8099
 panel_icon: mdi:finance
 panel_title: Market Monitor
 homeassistant_api: true
+hassio_api: true
 ports:
   8099/tcp: null
 ports_description:
@@ -25,6 +26,7 @@ options:
   sec_user_agent: ""
   notify_service: ""
   notify_summaries: true
+  quiet_hours: ""
   alerts_enabled: true
   alert_sensitivity: normaal
   alert_critical: true
@@ -118,6 +120,7 @@ schema:
   sec_user_agent: str?
   notify_service: str?
   notify_summaries: bool
+  quiet_hours: match(^(\d{1,2}-\d{1,2})?$)?
   alerts_enabled: bool
   alert_sensitivity: list(laag|normaal|hoog)
   alert_critical: bool

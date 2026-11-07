@@ -80,19 +80,12 @@ def sma(values: list[float], n: int) -> float | None:
 
 
 def rsi(values: list[float], n: int = 14) -> float | None:
+    """RSI volgens Wilder (zelfde berekening als in de technische analyse)."""
+    from .technical import rsi_series
+
     if len(values) < n + 1:
         return None
-    gains, losses = 0.0, 0.0
-    for i in range(-n, 0):
-        diff = values[i] - values[i - 1]
-        if diff >= 0:
-            gains += diff
-        else:
-            losses -= diff
-    if losses == 0:
-        return 100.0
-    rs = (gains / n) / (losses / n)
-    return 100 - 100 / (1 + rs)
+    return rsi_series(values, n)[-1]
 
 
 def indicators(closes: list[float]) -> dict:

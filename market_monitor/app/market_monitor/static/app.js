@@ -27,9 +27,11 @@
     actor: "all", type: "all", min: 100000, junk: "0", summaries: [], summaryId: null,
     markets: ["stocks", "crypto"], sound: recall("mm-sound", "off") === "on",
     rotate: hashMarket === "rotate" || recall("mm-rotate", "off") === "on",
+    view: ["aanbeveling", "rec"].includes(hashMarket) ? "rec" : null,
     lastAlertId: +recall("mm-last-alert", "0"), alerts: [],
   };
   state.min = TEXT[state.market].min;
+  state.view = state.view || state.market;
   const q = (path) => path + (path.includes("?") ? "&" : "?") + "market=" + state.market;
 
   // ------------------------------------------------------------------ helpers
@@ -173,8 +175,9 @@
   async function loadOverview() {
     const o = await api(q("overview"));
     state.markets = o.markets.map((m) => m.key);
-    document.querySelectorAll("#market-tabs button").forEach((b) => { b.hidden = !state.markets.includes(b.dataset.market); });
+    document.querySelectorAll("#market-tabs button").forEach((b) => { b.hidden = b.dataset.market !== "rec" && !state.markets.includes(b.dataset.market); });
     if (!state.markets.includes(state.market) && state.markets.length) { switchMarket(state.markets[0]); return; }
+    renderRecLink(o.recommendation);
     const mood = $("mood");
     clear(mood);
     const s = o.summary && o.summary.content;
@@ -564,6 +567,324 @@
     hideTip();
   }
 
+  // ------------------------------------------------------------------ aanbeveling
+  const fmtPct = (v) => (v === null || v === undefined || isNaN(v) ? "" : (v >= 0 ? "+" : "") + nf1.format(v) + "%");
+  const DIR = {
+    long: { cls: "long", text: "LONG ▲" },
+    short: { cls: "short", text: "SHORT ▼" },
+    neutral: { cls: "neutral", text: "AFWACHTEN" },
+  };
+  function renderRecLink(rec) {
+    const b = $("rec-link");
+    if (!rec) { b.hidden = true; return; }
+    clear(b);
+    const cls = rec.direction === "long" ? "pos" : rec.direction === "short" ? "neg" : "mid";
+    b.append(el("span", { class: "dot " + cls }), "Aanbeveling: " + (rec.direction === "neutral" ? "afwachten" : rec.label + " " + rec.ticker) + " ›");
+    b.hidden = false;
+  }
+  $("rec-link").addEventListener("click", () => switchView("rec"));
+
+  async function loadRecommendations() {
+    const markets = state.markets.length ? state.markets : ["stocks", "crypto"];
+    ["stocks", "crypto"].forEach((m) => { $("rec-" + m).hidden = !markets.includes(m); });
+    await Promise.all(markets.map(async (m) => renderRecCard(m, await api("recommendation?market=" + m))));
+  }
+
+  function planItem(label, value, sub, keyColor) {
+    return el("div", { class: "plan-item" },
+      el("div", { class: "label" }, keyColor ? el("span", { class: "key", style: "background:" + keyColor }) : null, label),
+      el("div", { class: "value", text: value }),
+      sub ? el("div", { class: "sub", text: sub }) : null);
+  }
+
+  function renderRecCard(market, d) {
+    const card = $("rec-" + market);
+    clear(card);
+    const t = TEXT[market];
+    const head = el("div", { class: "panel-head" },
+      el("h2", null, el("span", { class: "market-chip", style: "border-left-color: var(" + (market === "crypto" ? "--series-2" : "--series-1") + ")", text: t.label }),
+        "Aanbeveling ", el("span", { class: "sub", text: "technische analyse + koopscore" })));
+    card.appendChild(head);
+    const body = el("div", { class: "panel-body" });
+    card.appendChild(body);
+    const rec = d.recommendation;
+    if (!rec) {
+      body.appendChild(el("p", { class: "empty", text: "Nog geen aanbeveling: er is minstens 60 dagen koershistorie en een koopscore nodig. Dit verschijnt na de eerste rondes." }));
+      return;
+    }
+    const p = rec.plan, cur = rec.currency, price = p.price;
+    const rel = (v) => (v ? fmtPct((v / price - 1) * 100) : "");
+    const dir = DIR[p.direction] || DIR.neutral;
+    const convMeter = el("span", { class: "meter" }, el("span"));
+    convMeter.firstChild.style.width = p.conviction + "%";
+    const openBtn = el("button", { type: "button", class: "linkbtn", text: "Details" });
+    openBtn.addEventListener("click", () => { switchMarket(market); openDrawer(rec.ticker); });
+    body.appendChild(el("div", { class: "rec-top" },
+      el("div", { class: "rec-asset" },
+        el("span", { class: "rec-ticker", text: rec.ticker }),
+        el("span", { class: "rec-name", text: rec.name || "" }),
+        el("span", { class: "rec-price", text: fmtPrice(price, cur) }),
+        rec.chg_24h !== null && rec.chg_24h !== undefined ? el("span", { class: rec.chg_24h >= 0 ? "chg-pos" : "chg-neg", text: fmtPct(rec.chg_24h) + " 24u" }) : null,
+        openBtn),
+      el("div", { class: "dir-wrap" },
+        el("span", { class: "dir-badge " + dir.cls, text: dir.text }),
+        el("span", { class: "conv" }, "Overtuiging " + p.conviction + "%", convMeter))));
+    body.appendChild(el("div", { class: "rec-action", text: p.action + (rec.since ? " · sinds " + fmtDate(rec.since, true) : "") }));
+
+    const grid = el("div", { class: "plan-grid" });
+    if (p.direction !== "neutral") {
+      grid.append(
+        planItem("Instapzone", fmtPrice(p.entry_low, cur) + " - " + fmtPrice(p.entry_high, cur), rel((p.entry_low + p.entry_high) / 2) + " t.o.v. nu", "var(--text-2)"),
+        planItem("Stop-loss", fmtPrice(p.stop, cur), rel(p.stop) + (p.risk_pct ? " · risico " + nf1.format(p.risk_pct) + "%" : ""), "var(--critical)"),
+        planItem("Doel 1", fmtPrice(p.target1, cur), rel(p.target1), "var(--good)"),
+        planItem("Doel 2", fmtPrice(p.target2, cur), rel(p.target2), "var(--good)"),
+        planItem("Risico / rendement", p.rr ? "1 : " + nf1.format(p.rr) : "-", "tot doel 1"),
+        planItem(p.direction === "long" ? "Kans op stijging" : "Kans op daling", Math.round(p.prob * 100) + "%", rec.prob_source === "gekalibreerd" ? "gekalibreerd" : "modelschatting"),
+        planItem("Horizon", "~" + p.horizon_days + (market === "stocks" ? " koersdagen" : " dagen"), "verwachting t/m " + fmtDate(rec.chart.future_dates[rec.chart.future_dates.length - 1])),
+        planItem("Koopscore", nf0.format(rec.score), rec.timing || ""),
+      );
+    } else {
+      grid.append(
+        planItem("Steun", p.support ? fmtPrice(p.support, cur) : "-", rel(p.support)),
+        planItem("Weerstand", p.resistance ? fmtPrice(p.resistance, cur) : "-", rel(p.resistance)),
+        planItem("Verwachte bandbreedte", fmtPrice(p.expected.low, cur) + " - " + fmtPrice(p.expected.high, cur), "±1σ over ~" + p.horizon_days + " dagen"),
+        planItem("Koopscore", nf0.format(rec.score), rec.timing || ""),
+      );
+    }
+    body.appendChild(grid);
+
+    body.appendChild(el("div", { class: "ta-legend" },
+      el("span", null, el("span", { class: "key", style: "background: var(--series-1)" }), "Koers"),
+      el("span", null, el("span", { class: "key", style: "background: var(--series-3)" }), "SMA 20"),
+      el("span", null, el("span", { class: "key", style: "background: var(--series-2)" }), "SMA 50"),
+      el("span", null, el("span", { class: "key band", style: "background: color-mix(in srgb, var(--muted) 22%, transparent)" }), "Bollinger-band"),
+      el("span", null, el("span", { class: "key dash", style: "color: var(--muted)" }), "Trendkanaal"),
+      el("span", null, el("span", { class: "key", style: "background: var(--axis)" }), "Steun / weerstand"),
+      p.direction !== "neutral" ? el("span", null, el("span", { class: "key dash", style: "color: var(" + (p.direction === "long" ? "--pos" : "--neg") + ")" }), "Scenario") : null,
+      el("span", null, el("span", { class: "key band", style: "background: color-mix(in srgb, var(" + (p.direction === "short" ? "--neg" : "--pos") + ") 18%, transparent)" }), "Verwachting ±1σ")));
+    body.appendChild(el("div", { class: "ta-chart" }, taChart(rec, market)));
+    body.appendChild(el("div", { class: "ta-chart" }, rsiChart(rec)));
+
+    const cols = el("div", { class: "rec-cols" });
+    cols.appendChild(el("div", null, el("h3", { text: "Technische signalen" }),
+      el("ul", { class: "plain" }, p.signals.map((x) => el("li", { text: x })))));
+    const right = el("div", null);
+    if (rec.reasons && rec.reasons.length) {
+      right.append(el("h3", { text: "Waarom (koopscore)" }), el("ul", { class: "plain" }, rec.reasons.slice(0, 5).map((x) => el("li", { text: x }))));
+    }
+    if (d.ai_comment) {
+      right.append(el("h3", { text: d.comment_method === "ai" ? "Commentaar (AI)" : "Commentaar" }), el("div", { class: "rec-comment", text: d.ai_comment }));
+    }
+    cols.appendChild(right);
+    body.appendChild(cols);
+
+    if (d.history && d.history.length) {
+      body.appendChild(el("h3", { text: "Eerdere aanbevelingen" }));
+      body.appendChild(el("ul", { class: "plain" }, d.history.map((h) => {
+        const dd = DIR[h.direction] || DIR.neutral;
+        const ret = h.return_pct;
+        return el("li", null,
+          fmtDate(h.created_at, true) + " · ",
+          el("strong", { text: dd.text.split(" ")[0] + " " + h.ticker }),
+          " · " + h.status,
+          ret !== null && ret !== undefined ? el("span", { class: "hist-ret " + (ret >= 0 ? "pos" : "neg"), text: " " + fmtPct(ret) + (h.direction === "short" ? " (short)" : "") }) : null);
+      })));
+    }
+    body.appendChild(el("p", { class: "rec-note", text: "Schets op basis van technische analyse en het scoremodel, geen beleggingsadvies. Short gaan = inzetten op een daling (via CFD's, futures of short-ETF's); je verlies kan groter zijn dan je inleg. Gebruik altijd een stop-loss en beleg niet met geld dat je niet kunt missen." }));
+  }
+
+  function axisFmt(v, hi) {
+    if (hi < 1) return new Intl.NumberFormat("nl-NL", { maximumSignificantDigits: 3 }).format(v);
+    if (hi < 10) return nf2.format(v);
+    return nf0.format(v);
+  }
+
+  function taChart(rec, market) {
+    const c = rec.chart, p = rec.plan, cur = rec.currency;
+    const n = c.close.length, h = c.future_dates.length, total = n - 1 + h;
+    const W = 760, H = 340, m = { l: 52, r: 96, t: 12, b: 24 };
+    const x = (i) => m.l + (i / total) * (W - m.l - m.r);
+    const ok = (v) => v !== null && v !== undefined && !isNaN(v);
+    const vals = c.close.concat(c.bb_upper.filter(ok), c.bb_lower.filter(ok), c.cone_low, c.cone_high);
+    [p.stop, p.target1, p.target2, p.entry_low, p.entry_high].forEach((v) => { if (ok(v)) vals.push(v); });
+    let lo = Math.min(...vals), hi = Math.max(...vals);
+    const pad = (hi - lo) * 0.06 || hi * 0.05;
+    lo -= pad; hi += pad;
+    const y = (v) => m.t + (1 - (v - lo) / (hi - lo)) * (H - m.t - m.b);
+    const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": `Koersgrafiek ${rec.ticker} met technische analyse en verwachting` });
+    const add = (tag, attrs) => { const e = svg(tag, attrs); root.appendChild(e); return e; };
+    const txt = (xx, yy, str, attrs) => { const e = add("text", Object.assign({ x: xx, y: yy }, attrs || {})); e.textContent = str; return e; };
+
+    // toekomst-achtergrond
+    add("rect", { x: x(n - 1), y: m.t, width: x(total) - x(n - 1), height: H - m.t - m.b, fill: "var(--surface-2)", opacity: 0.6 });
+    txt(x(n - 1) + 6, m.t + 12, "verwachting", { class: "axis-label" });
+    // raster
+    niceTicks(lo, hi, 5).filter((v) => v >= lo && v <= hi).forEach((v) => {
+      add("line", { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), stroke: "var(--grid)", "stroke-width": 1 });
+      txt(m.l - 6, y(v) + 4, axisFmt(v, hi), { class: "axis-label", "text-anchor": "end" });
+    });
+    add("line", { x1: m.l, x2: W - m.r, y1: H - m.b, y2: H - m.b, stroke: "var(--axis)", "stroke-width": 1 });
+    const allDates = c.dates.concat(c.future_dates);
+    let lastMonth = null;
+    allDates.forEach((dt, i) => {
+      const mo = dt.slice(0, 7);
+      if (mo !== lastMonth) {
+        if (lastMonth !== null) txt(x(i), H - 6, new Date(dt + "T00:00:00Z").toLocaleDateString("nl-NL", { month: "short" }), { class: "axis-label", "text-anchor": "middle" });
+        lastMonth = mo;
+      }
+    });
+    const line = (pts, attrs) => {
+      const d = pts.filter((pt) => ok(pt[1])).map((pt, k) => (k ? "L" : "M") + x(pt[0]).toFixed(1) + "," + y(pt[1]).toFixed(1)).join(" ");
+      return add("path", Object.assign({ d, fill: "none", "stroke-linejoin": "round", "stroke-linecap": "round" }, attrs));
+    };
+    // Bollinger-band
+    const bbIdx = c.bb_upper.map((v, i) => i).filter((i) => ok(c.bb_upper[i]));
+    if (bbIdx.length) {
+      const d = bbIdx.map((i, k) => (k ? "L" : "M") + x(i) + "," + y(c.bb_upper[i])).join(" ") + " " +
+        bbIdx.slice().reverse().map((i) => "L" + x(i) + "," + y(c.bb_lower[i])).join(" ") + " Z";
+      add("path", { d, fill: "var(--muted)", "fill-opacity": 0.14, stroke: "none" });
+    }
+    // trendkanaal
+    if (c.channel.length) {
+      line(c.channel.map((r) => [r[0], r[1]]), { stroke: "var(--muted)", "stroke-width": 1.5, "stroke-dasharray": "5 4" });
+      line(c.channel.map((r) => [r[0], r[2]]), { stroke: "var(--muted)", "stroke-width": 1, "stroke-dasharray": "2 4" });
+      line(c.channel.map((r) => [r[0], r[3]]), { stroke: "var(--muted)", "stroke-width": 1, "stroke-dasharray": "2 4" });
+    }
+    const labels = [];
+    // steun / weerstand
+    c.levels.forEach((lv) => {
+      if (lv.price < lo || lv.price > hi) return;
+      add("line", { x1: m.l, x2: W - m.r, y1: y(lv.price), y2: y(lv.price), stroke: "var(--axis)", "stroke-width": 1 });
+      labels.push({ v: lv.price, text: (lv.kind === "steun" ? "Steun " : "Weerst. ") + axisFmt(lv.price, hi), prio: 3 });
+    });
+    // plan: instapzone, stop, doelen (vanaf 'nu' naar rechts)
+    const nowX = x(n - 1);
+    if (p.direction !== "neutral") {
+      const top = Math.max(p.entry_low, p.entry_high), bot = Math.min(p.entry_low, p.entry_high);
+      add("rect", { x: nowX, y: y(top), width: x(total) - nowX, height: Math.max(2, y(bot) - y(top)), fill: "var(--text-2)", "fill-opacity": 0.16 });
+      labels.push({ v: (top + bot) / 2, text: "Instap " + axisFmt((top + bot) / 2, hi), prio: 1 });
+      add("line", { x1: nowX, x2: x(total), y1: y(p.stop), y2: y(p.stop), stroke: "var(--critical)", "stroke-width": 2 });
+      labels.push({ v: p.stop, text: "Stop " + axisFmt(p.stop, hi), prio: 0, color: "var(--critical)" });
+      [["Doel 1", p.target1], ["Doel 2", p.target2]].forEach(([lab, v]) => {
+        add("line", { x1: nowX, x2: x(total), y1: y(v), y2: y(v), stroke: "var(--good)", "stroke-width": 2 });
+        labels.push({ v, text: lab + " " + axisFmt(v, hi), prio: 0, color: "var(--good)" });
+      });
+    }
+    // verwachtingskegel (±1σ)
+    const coneColor = p.direction === "short" ? "var(--neg)" : "var(--pos)";
+    const up = [[n - 1, p.price]].concat(c.cone_high.map((v, k) => [n + k, v]));
+    const down = c.cone_low.map((v, k) => [n + k, v]).reverse().concat([[n - 1, p.price]]);
+    add("path", { d: up.concat(down).map((pt, k) => (k ? "L" : "M") + x(pt[0]).toFixed(1) + "," + y(pt[1]).toFixed(1)).join(" ") + " Z", fill: coneColor, "fill-opacity": 0.14, stroke: "none" });
+    line([[n - 1, p.price]].concat(c.cone_mid.map((v, k) => [n + k, v])), { stroke: coneColor, "stroke-width": 1, "stroke-opacity": 0.6 });
+    // scenario
+    if (c.scenario.length) {
+      line(c.scenario.map((sp) => [n - 1 + sp[0], sp[1]]), { stroke: coneColor, "stroke-width": 2, "stroke-dasharray": "6 5" });
+      const last = c.scenario[c.scenario.length - 1];
+      add("circle", { cx: x(n - 1 + last[0]), cy: y(last[1]), r: 4, fill: coneColor, stroke: "var(--surface)", "stroke-width": 2 });
+    }
+    // koers + gemiddelden
+    const closePts = c.close.map((v, i) => [i, v]);
+    add("path", { d: "M" + x(0) + "," + (H - m.b) + " " + closePts.map((pt) => "L" + x(pt[0]).toFixed(1) + "," + y(pt[1]).toFixed(1)).join(" ") + " L" + x(n - 1) + "," + (H - m.b) + " Z", fill: "var(--series-1)", "fill-opacity": 0.08, stroke: "none" });
+    line(c.sma50.map((v, i) => [i, v]), { stroke: "var(--series-2)", "stroke-width": 2 });
+    line(c.sma20.map((v, i) => [i, v]), { stroke: "var(--series-3)", "stroke-width": 2 });
+    line(closePts, { stroke: "var(--series-1)", "stroke-width": 2 });
+    add("line", { x1: nowX, x2: nowX, y1: m.t, y2: H - m.b, stroke: "var(--axis)", "stroke-width": 1 });
+    txt(nowX - 4, m.t + 12, "nu", { class: "axis-label", "text-anchor": "end" });
+    add("circle", { cx: nowX, cy: y(p.price), r: 4, fill: "var(--series-1)", stroke: "var(--surface)", "stroke-width": 2 });
+    labels.push({ v: p.price, text: axisFmt(p.price, hi), prio: 0, strong: true });
+
+    // labels rechts, zonder overlap (belangrijkste eerst)
+    const placed = [];
+    labels.sort((a, b) => a.prio - b.prio).forEach((lb) => {
+      const yy = y(lb.v);
+      if (yy < m.t || yy > H - m.b || placed.some((py) => Math.abs(py - yy) < 12)) return;
+      placed.push(yy);
+      if (lb.color) add("line", { x1: W - m.r + 3, x2: W - m.r + 9, y1: yy, y2: yy, stroke: lb.color, "stroke-width": 2 });
+      txt(W - m.r + 12, yy + 4, lb.text, { class: "lvl-label" + (lb.strong || lb.color ? " strong" : "") });
+    });
+
+    // crosshair + tooltip op de historie
+    const cross = add("line", { y1: m.t, y2: H - m.b, stroke: "var(--axis)", "stroke-width": 1, visibility: "hidden" });
+    const dot = add("circle", { r: 4, fill: "var(--series-1)", stroke: "var(--surface)", "stroke-width": 2, visibility: "hidden" });
+    const hit = add("rect", { x: m.l, y: m.t, width: nowX - m.l, height: H - m.t - m.b, fill: "transparent", tabindex: "0" });
+    let idx = n - 1;
+    const show = (i, cx, cy) => {
+      idx = i;
+      cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i)); cross.setAttribute("visibility", "visible");
+      dot.setAttribute("cx", x(i)); dot.setAttribute("cy", y(c.close[i])); dot.setAttribute("visibility", "visible");
+      const row = (color, val, lab) => el("div", { class: "row" }, el("span", { class: "key", style: "background:" + color }), el("strong", { text: val }), el("span", { class: "muted", text: lab }));
+      const rows = [el("div", { class: "muted", text: new Date(c.dates[i] + "T00:00:00Z").toLocaleDateString("nl-NL", { day: "numeric", month: "short", year: "numeric" }) }),
+        row("var(--series-1)", fmtPrice(c.close[i], cur), "koers")];
+      if (ok(c.sma20[i])) rows.push(row("var(--series-3)", fmtPrice(c.sma20[i], cur), "SMA 20"));
+      if (ok(c.sma50[i])) rows.push(row("var(--series-2)", fmtPrice(c.sma50[i], cur), "SMA 50"));
+      if (ok(c.rsi[i])) rows.push(el("div", { class: "row" }, el("strong", { text: nf0.format(c.rsi[i]) }), el("span", { class: "muted", text: "RSI" })));
+      showTip(cx, cy, rows);
+    };
+    hit.addEventListener("pointermove", (e) => {
+      const r = root.getBoundingClientRect();
+      const px = ((e.clientX - r.left) / r.width) * W;
+      const i = Math.max(0, Math.min(n - 1, Math.round(((px - m.l) / (W - m.l - m.r)) * total)));
+      show(i, e.clientX, e.clientY);
+    });
+    const leave = () => { cross.setAttribute("visibility", "hidden"); dot.setAttribute("visibility", "hidden"); hideTip(); };
+    hit.addEventListener("pointerleave", leave);
+    hit.addEventListener("blur", leave);
+    hit.addEventListener("keydown", (e) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      e.preventDefault();
+      const i = Math.max(0, Math.min(n - 1, idx + (e.key === "ArrowRight" ? 1 : -1)));
+      const r = root.getBoundingClientRect();
+      show(i, r.left + (x(i) / W) * r.width, r.top + (y(c.close[i]) / H) * r.height);
+    });
+    return root;
+  }
+
+  function rsiChart(rec) {
+    const c = rec.chart, n = c.close.length, h = c.future_dates.length, total = n - 1 + h;
+    const W = 760, H = 86, m = { l: 52, r: 96, t: 8, b: 14 };
+    const x = (i) => m.l + (i / total) * (W - m.l - m.r);
+    const y = (v) => m.t + (1 - v / 100) * (H - m.t - m.b);
+    const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "RSI (14 dagen)" });
+    const add = (tag, attrs) => { const e = svg(tag, attrs); root.appendChild(e); return e; };
+    add("rect", { x: m.l, y: y(70), width: x(n - 1) - m.l, height: y(30) - y(70), fill: "var(--muted)", "fill-opacity": 0.08 });
+    [30, 70].forEach((v) => {
+      add("line", { x1: m.l, x2: x(n - 1), y1: y(v), y2: y(v), stroke: "var(--grid)", "stroke-width": 1 });
+      const t = add("text", { x: m.l - 6, y: y(v) + 4, class: "axis-label", "text-anchor": "end" });
+      t.textContent = String(v);
+    });
+    const pts = c.rsi.map((v, i) => [i, v]).filter((pt) => pt[1] !== null && pt[1] !== undefined);
+    add("path", { d: pts.map((pt, k) => (k ? "L" : "M") + x(pt[0]).toFixed(1) + "," + y(pt[1]).toFixed(1)).join(" "), fill: "none", stroke: "var(--series-1)", "stroke-width": 2, "stroke-linejoin": "round" });
+    const last = pts[pts.length - 1];
+    if (last) {
+      add("circle", { cx: x(last[0]), cy: y(last[1]), r: 4, fill: "var(--series-1)", stroke: "var(--surface)", "stroke-width": 2 });
+      const t = add("text", { x: W - m.r + 12, y: y(last[1]) + 4, class: "lvl-label strong" });
+      t.textContent = "RSI " + nf0.format(last[1]);
+    }
+    return root;
+  }
+
+  // ------------------------------------------------------------------ testmelding
+  let toastTimer = null;
+  function toast(msg, good) {
+    const t = $("toast");
+    t.textContent = msg;
+    t.className = "toast " + (good ? "good" : "bad");
+    t.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.hidden = true; }, 7000);
+  }
+  $("btn-test").addEventListener("click", async () => {
+    const btn = $("btn-test");
+    btn.disabled = true;
+    try {
+      const r = await (await fetch("api/notify/test", { method: "POST" })).json();
+      toast(r.message, r.ok);
+    } catch (e) {
+      toast("Testmelding mislukt: " + e.message, false);
+    }
+    btn.disabled = false;
+  });
+
   // ------------------------------------------------------------------ events
   document.querySelectorAll(".seg").forEach((seg) => {
     seg.addEventListener("click", (e) => {
@@ -604,7 +925,10 @@
   function applyMarketTexts() {
     const t = TEXT[state.market];
     document.body.dataset.market = state.market;
-    document.querySelectorAll("#market-tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.market === state.market)));
+    document.querySelectorAll("#market-tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.market === state.view)));
+    document.body.dataset.view = state.view;
+    $("rec-view").hidden = state.view !== "rec";
+    document.querySelector("main.grid").hidden = state.view === "rec";
     document.querySelectorAll("[data-market-chip]").forEach((c) => { c.textContent = t.label; });
     $("t-trades").textContent = t.trades;
     $("t-trades-sub").textContent = t.tradesSub;
@@ -616,8 +940,22 @@
     document.title = "Market Monitor - " + t.label;
     renderActorSeg();
   }
+  function switchView(v) {
+    if (v === state.view) return;
+    if (v === "rec") {
+      state.view = "rec";
+      if (!state.rotate) history.replaceState(null, "", "#aanbeveling");
+      closeDrawer();
+      applyMarketTexts();
+      document.title = "Market Monitor - Aanbeveling";
+      refreshAll();
+      return;
+    }
+    switchMarket(v);
+  }
   function switchMarket(m) {
-    if (!TEXT[m] || m === state.market) return;
+    if (!TEXT[m] || (m === state.market && state.view === m)) return;
+    state.view = m;
     state.market = m;
     state.actor = "all";
     state.min = TEXT[m].min;
@@ -628,7 +966,7 @@
     applyMarketTexts();
     refreshAll();
   }
-  document.querySelectorAll("#market-tabs button").forEach((b) => b.addEventListener("click", () => switchMarket(b.dataset.market)));
+  document.querySelectorAll("#market-tabs button").forEach((b) => b.addEventListener("click", () => switchView(b.dataset.market)));
 
   let rotateTimer = null;
   function applyRotate() {
@@ -637,8 +975,9 @@
     if (state.rotate) {
       rotateTimer = setInterval(() => {
         if ($("drawer").classList.contains("open")) return;
-        const i = state.markets.indexOf(state.market);
-        switchMarket(state.markets[(i + 1) % state.markets.length]);
+        const views = state.markets.concat(["rec"]);
+        const i = views.indexOf(state.view);
+        switchView(views[(i + 1) % views.length]);
       }, ROTATE_MS);
     }
   }
@@ -717,7 +1056,10 @@
   });
 
   function refreshAll() {
-    return Promise.allSettled([loadOverview(), loadTrades(), loadNews(), loadAlerts().then(loadSummaries), loadScores()]).then((res) => {
+    const jobs = state.view === "rec"
+      ? [loadOverview(), loadAlerts(), loadRecommendations()]
+      : [loadOverview(), loadTrades(), loadNews(), loadAlerts().then(loadSummaries), loadScores()];
+    return Promise.allSettled(jobs).then((res) => {
       res.forEach((r) => { if (r.status === "rejected") console.error(r.reason); });
     });
   }

@@ -189,5 +189,8 @@ def test_hass_push_alert_and_hourly_notification(monkeypatch, cfg, db):
     notify = [d for u, d in calls if u.endswith("/services/notify/mobile_app_test")]
     assert len(notify) == 1
     assert notify[0]["message"].splitlines() == ["Aandelen: Aandelen rustig", "Crypto: Bitcoin stijgt"]
-    assert "priority" not in notify[0]["data"]
+    data = notify[0]["data"]
+    # Uurbericht: wel popup (hoge prioriteit), maar geen kritieke melding en vervangt het vorige uurbericht
+    assert data["tag"] == "market_monitor_update" and data["push"] == {"interruption-level": "active"}
+    assert data["channel"] == "Market Monitor"
     assert any(u.endswith("sensor.market_monitor_crypto_summary") for u, _ in calls)

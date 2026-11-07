@@ -10,6 +10,7 @@ from .db import Database, ago, iso, utcnow
 from .filtering import NewsIngestor
 from .hass import HomeAssistant
 from .net import make_session
+from .recommend import Recommender
 from .scheduler import Job, Scheduler
 from .scoring import CryptoScoringEngine, ScoringEngine
 from .sources.btc_whales import BtcWhaleSource
@@ -42,6 +43,7 @@ class MarketMonitor:
         }
         self.ingestor = NewsIngestor(cfg, self.db, self.extractors)
         self.scoring = {"stocks": ScoringEngine(cfg, self.db), "crypto": CryptoScoringEngine(cfg, self.db)}
+        self.recommender = Recommender(cfg, self.db)
         self.summarizer = Summarizer(cfg, self.db, self.ingestor)
         self.hass = HomeAssistant(cfg, self.db)
         self.alerts = AlertEngine(cfg, self.db, self.hass, self.summarizer)
@@ -127,6 +129,11 @@ class MarketMonitor:
         def run() -> int:
             n = self.scoring[market].run()
             self.hass.publish_scores(market)
+            try:
+                self.recommender.update(market)
+                self.hass.publish_recommendation(market)
+            except Exception as exc:  # noqa: BLE001 - aanbeveling mag de scores niet blokkeren
+                log.error("Aanbeveling %s mislukt: %s", market, exc)
             jobs = self.db.query("SELECT name, last_ok, last_error FROM job_status")
             failing = [j["name"] for j in jobs if j["last_error"]]
             self.hass.publish_status(not failing, {"bronnen_met_fouten": failing, "bijgewerkt": iso(utcnow())})
