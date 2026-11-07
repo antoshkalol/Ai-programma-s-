@@ -9,13 +9,16 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+SCHEMA_VERSION = 2
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS trades (
     id TEXT PRIMARY KEY,
-    source TEXT NOT NULL,          -- sec_form4 | house | senate | quiver
+    market TEXT NOT NULL DEFAULT 'stocks',   -- stocks | crypto
+    source TEXT NOT NULL,          -- sec_form4 | house | senate | quiver | sec_8k | btc_chain
     actor_name TEXT NOT NULL,
     actor_role TEXT,
-    actor_type TEXT NOT NULL,      -- insider | politician
+    actor_type TEXT NOT NULL,      -- insider | politician | company | whale
     party TEXT,
     ticker TEXT,
     company TEXT,
@@ -34,11 +37,13 @@ CREATE TABLE IF NOT EXISTS trades (
     note TEXT,
     created_at TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_trades_filed ON trades(filed_at);
+CREATE INDEX IF NOT EXISTS idx_trades_filed ON trades(market, filed_at);
 CREATE INDEX IF NOT EXISTS idx_trades_ticker ON trades(ticker);
+CREATE INDEX IF NOT EXISTS idx_trades_created ON trades(created_at);
 
 CREATE TABLE IF NOT EXISTS news (
     id TEXT PRIMARY KEY,
+    market TEXT NOT NULL DEFAULT 'stocks',
     source TEXT,
     domain TEXT,
     kind TEXT DEFAULT 'news',      -- news | post | press_release
@@ -58,27 +63,50 @@ CREATE TABLE IF NOT EXISTS news (
     is_junk INTEGER DEFAULT 0,
     junk_reason TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_news_published ON news(published_at);
+CREATE INDEX IF NOT EXISTS idx_news_published ON news(market, published_at);
 CREATE INDEX IF NOT EXISTS idx_news_cluster ON news(cluster_id);
 
 CREATE TABLE IF NOT EXISTS prices (
+    market TEXT NOT NULL DEFAULT 'stocks',
     ticker TEXT NOT NULL,
     date TEXT NOT NULL,
     close REAL NOT NULL,
-    PRIMARY KEY (ticker, date)
+    PRIMARY KEY (market, ticker, date)
 );
 
 CREATE TABLE IF NOT EXISTS price_meta (
-    ticker TEXT PRIMARY KEY,
+    market TEXT NOT NULL DEFAULT 'stocks',
+    ticker TEXT NOT NULL,
     name TEXT,
     currency TEXT,
     last_price REAL,
     prev_close REAL,
-    fetched_at TEXT
+    chg_1h REAL,
+    chg_24h REAL,
+    chg_7d REAL,
+    volume REAL,
+    market_cap REAL,
+    rank INTEGER,
+    fetched_at TEXT,
+    PRIMARY KEY (market, ticker)
+);
+
+CREATE TABLE IF NOT EXISTS crypto_snapshots (
+    coin TEXT NOT NULL,
+    ts TEXT NOT NULL,
+    price REAL,
+    volume REAL,
+    chg_1h REAL,
+    chg_24h REAL,
+    chg_7d REAL,
+    market_cap REAL,
+    rank INTEGER,
+    PRIMARY KEY (coin, ts)
 );
 
 CREATE TABLE IF NOT EXISTS scores_latest (
-    ticker TEXT PRIMARY KEY,
+    market TEXT NOT NULL DEFAULT 'stocks',
+    ticker TEXT NOT NULL,
     computed_at TEXT NOT NULL,
     score REAL NOT NULL,
     prob_up REAL,
@@ -86,27 +114,47 @@ CREATE TABLE IF NOT EXISTS scores_latest (
     timing TEXT,
     price REAL,
     components TEXT,
-    reasons TEXT
+    reasons TEXT,
+    PRIMARY KEY (market, ticker)
 );
 
 CREATE TABLE IF NOT EXISTS score_history (
+    market TEXT NOT NULL DEFAULT 'stocks',
     ticker TEXT NOT NULL,
     day TEXT NOT NULL,
     score REAL NOT NULL,
     price REAL,
-    PRIMARY KEY (ticker, day)
+    PRIMARY KEY (market, ticker, day)
 );
 
 CREATE TABLE IF NOT EXISTS ticker_sentiment (
+    market TEXT NOT NULL DEFAULT 'stocks',
     ticker TEXT NOT NULL,
     created_at TEXT NOT NULL,
     sentiment REAL NOT NULL,
     reason TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_tsent ON ticker_sentiment(ticker, created_at);
+CREATE INDEX IF NOT EXISTS idx_tsent ON ticker_sentiment(market, ticker, created_at);
+
+CREATE TABLE IF NOT EXISTS alerts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    market TEXT NOT NULL,
+    asset TEXT,
+    kind TEXT NOT NULL,
+    title TEXT NOT NULL,
+    message TEXT,
+    reasons TEXT,
+    strength REAL,
+    status TEXT NOT NULL,          -- verzonden | onderdrukt
+    ai_note TEXT,
+    acknowledged INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_alerts_created ON alerts(created_at);
 
 CREATE TABLE IF NOT EXISTS summaries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    market TEXT NOT NULL DEFAULT 'stocks',
     period_start TEXT NOT NULL,
     period_end TEXT NOT NULL,
     created_at TEXT NOT NULL,
@@ -171,7 +219,15 @@ class Database:
         self._local = threading.local()
         self._write_lock = threading.Lock()
         with self._write_lock:
+            version = self.conn.execute("PRAGMA user_version").fetchone()[0]
+            if version < SCHEMA_VERSION:
+                # De database is een cache van openbare data: bij een nieuwe versie bouwen we hem opnieuw op
+                tables = [r[0] for r in self.conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
+                for t in tables:
+                    self.conn.execute(f'DROP TABLE IF EXISTS "{t}"')
             self.conn.executescript(SCHEMA)
+            self.conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
             self.conn.commit()
 
     @property
@@ -231,7 +287,7 @@ class Database:
 
     # ------------------------------------------------------------------ trades
     TRADE_COLS = (
-        "id", "source", "actor_name", "actor_role", "actor_type", "party", "ticker", "company",
+        "id", "market", "source", "actor_name", "actor_role", "actor_type", "party", "ticker", "company",
         "asset_type", "tx_type", "tx_code", "shares", "price", "value_usd", "value_low",
         "value_high", "tx_date", "filed_at", "planned", "url", "note", "created_at",
     )
@@ -243,6 +299,7 @@ class Database:
         with self._write_lock:
             for t in trades:
                 t = {**{c: None for c in self.TRADE_COLS}, **t}
+                t["market"] = t.get("market") or "stocks"
                 t["created_at"] = t.get("created_at") or now
                 t["planned"] = int(bool(t.get("planned")))
                 cur = self.conn.execute(

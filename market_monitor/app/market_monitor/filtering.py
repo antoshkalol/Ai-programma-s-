@@ -35,6 +35,11 @@ CLICKBAIT_PATTERNS = [
     r"\bretire (early|rich)\b", r"\bpassive income\b", r"\bunstoppable\b", r"\bno[- ]brainer\b",
     r"\bnu kopen\b", r"\bmega(winst|kans)\b", r"\bgegarandeerd\b", r"\bgeheime?\b", r"\bschokkend\b",
     r"\bexplodeert\b", r"\brijk worden\b",
+    # crypto-specifiek: presales, 'gems' en voorspellingsartikelen zijn vaak promotie
+    r"\bpre-?sales?\b", r"\b(1000|10,000)x\b", r"\bhidden gems?\b", r"\b(next|new) (big )?gem\b", r"\bairdrops?\b",
+    r"\bprice predictions?\b", r"\bwhitelist\b", r"\btoken sale\b", r"\bmoon(ing|shot)?\b", r"\bparabolic\b",
+    r"\bdon'?t sleep on\b", r"\bearly investors\b", r"\blast chance to buy\b", r"\bmeme ?coin to buy\b",
+    r"\bbest (crypto|altcoins?|coins?) to buy\b", r"\bcould (reach|hit) \$\d",
 ]
 CLICKBAIT_RE = [re.compile(p, re.IGNORECASE) for p in CLICKBAIT_PATTERNS]
 QUESTION_RE = re.compile(r"^(is|should|can|will|are|could|moet|kan|gaat)\b.+\?$", re.IGNORECASE)
@@ -138,21 +143,32 @@ class NewsIngestor:
     CLUSTER_WINDOW_HOURS = 36
     CLUSTER_THRESHOLD = 0.5
 
-    def __init__(self, cfg, db: Database, extractor: TickerExtractor):
+    def __init__(self, cfg, db: Database, extractors: dict[str, TickerExtractor]):
         self.cfg = cfg
         self.db = db
-        self.extractor = extractor
+        self.extractors = extractors
         self.trust = SourceTrust(cfg)
 
-    def __call__(self, items: list[dict], trusted_authors: set[str] | None = None) -> int:
+    def for_market(self, market: str):
+        """Geeft een ingest-functie die vast aan één markt hangt (voor de bronnen)."""
+        def ingest(items: list[dict], trusted_authors: set[str] | None = None) -> int:
+            return self(items, market=market, trusted_authors=trusted_authors)
+
+        return ingest
+
+    def __call__(self, items: list[dict], market: str = "stocks", trusted_authors: set[str] | None = None) -> int:
         if not items:
             return 0
         now = utcnow()
         min_time = now - timedelta(hours=self.MAX_AGE_HOURS)
+        extractor = self.extractors[market]
 
-        # Ontdubbel binnen deze batch en tegen de database
+        # Ontdubbel binnen deze batch en tegen de database (id's zijn per markt)
         uniq: dict[str, dict] = {}
         for it in items:
+            it = dict(it)
+            if not it["id"].startswith(market + ":"):
+                it["id"] = f"{market}:{it['id']}"
             uniq.setdefault(it["id"], it)
         ids = list(uniq)
         existing = set()
@@ -177,8 +193,8 @@ class NewsIngestor:
 
         # Bestaande clusters van de afgelopen uren laden
         recent = self.db.query(
-            "SELECT id, cluster_id, title, domain FROM news WHERE published_at >= ?",
-            (iso(now - timedelta(hours=self.CLUSTER_WINDOW_HOURS)),),
+            "SELECT id, cluster_id, title, domain FROM news WHERE market=? AND published_at >= ?",
+            (market, iso(now - timedelta(hours=self.CLUSTER_WINDOW_HOURS))),
         )
         clusters: dict[str, dict] = {}
         token_index: dict[str, set[str]] = defaultdict(set)
@@ -201,7 +217,7 @@ class NewsIngestor:
                 kind = "press_release"
             cb = clickbait_score(it["title"])
             text = f"{it['title']} {it.get('summary', '')}"
-            tickers = self.extractor.extract(text)
+            tickers = extractor.extract(text)
             sent = headline_sentiment(it["title"])
 
             toks = title_tokens(it["title"])
@@ -221,7 +237,7 @@ class NewsIngestor:
                 junk_reason = "Clickbait/hype"
             rows.append(
                 (
-                    it["id"], it.get("source"), domain, kind, author, it["title"][:300],
+                    it["id"], market, it.get("source"), domain, kind, author, it["title"][:300],
                     (it.get("summary") or "")[:800], it.get("url"), it["published_at"], fetched,
                     trust, cb, None, cid, 1, json.dumps(tickers), sent,
                     1 if junk_reason else 0, junk_reason,
@@ -229,9 +245,9 @@ class NewsIngestor:
             )
 
         self.db.executemany(
-            "INSERT OR IGNORE INTO news(id, source, domain, kind, author, title, summary, url, published_at,"
+            "INSERT OR IGNORE INTO news(id, market, source, domain, kind, author, title, summary, url, published_at,"
             " fetched_at, trust, clickbait, credibility, cluster_id, corroboration, tickers, sentiment,"
-            " is_junk, junk_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " is_junk, junk_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             rows,
         )
         self.update_clusters(touched)

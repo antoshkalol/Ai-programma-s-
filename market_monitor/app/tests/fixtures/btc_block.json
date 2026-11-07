@@ -1,0 +1,20 @@
+{
+  "hash": "00000000000000000001aaaa",
+  "prev_block": "00000000000000000000bbbb",
+  "height": 920001,
+  "time": 1762520400,
+  "tx": [
+    {"hash": "coinbase1", "time": 1762520400, "inputs": [{"sequence": 4294967295, "script": "03"}],
+     "out": [{"value": 312500000, "addr": "bc1qminer"}]},
+    {"hash": "whale1", "time": 1762520390,
+     "inputs": [{"prev_out": {"value": 150000000000, "addr": "bc1qsenderaaaaaaaaaaaaaaaaaaaa"}}],
+     "out": [{"value": 120000000000, "addr": "bc1qreceiverbbbbbbbbbbbbbbbbbb"},
+             {"value": 29990000000, "addr": "bc1qsenderaaaaaaaaaaaaaaaaaaaa"}]},
+    {"hash": "selfshuffle", "time": 1762520380,
+     "inputs": [{"prev_out": {"value": 200000000000, "addr": "bc1qselfcccc"}}],
+     "out": [{"value": 199990000000, "addr": "bc1qselfcccc"}]},
+    {"hash": "small1", "time": 1762520370,
+     "inputs": [{"prev_out": {"value": 100000000, "addr": "bc1qsmall"}}],
+     "out": [{"value": 90000000, "addr": "bc1qother"}]}
+  ]
+}

@@ -6,33 +6,44 @@
   <title>Market Monitor</title>
   <link rel="stylesheet" href="static/style.css">
 </head>
-<body>
+<body data-market="stocks">
   <header class="topbar">
     <div class="brand">
       <span class="brand-mark" aria-hidden="true"></span>
       <span>Market Monitor</span>
     </div>
+    <nav class="market-tabs" role="tablist" aria-label="Markt" id="market-tabs">
+      <button type="button" role="tab" data-market="stocks" aria-selected="true">Aandelen</button>
+      <button type="button" role="tab" data-market="crypto" aria-selected="false">Crypto</button>
+    </nav>
     <div class="mood" id="mood" aria-live="polite"></div>
     <div class="stats" id="stats"></div>
-    <div class="health" id="health"></div>
     <div class="actions">
       <span class="updated" id="updated"></span>
       <button type="button" id="btn-refresh" title="Nu alle bronnen verversen">Verversen</button>
+      <button type="button" id="btn-rotate" title="Wissel automatisch tussen aandelen en crypto (voor een wandmonitor)">Wissel: uit</button>
+      <button type="button" id="btn-sound" title="Geluid bij een noodmelding">Geluid: uit</button>
       <button type="button" id="btn-theme" title="Licht/donker">Thema</button>
       <button type="button" id="btn-full" title="Volledig scherm (voor een monitor)">Volledig scherm</button>
     </div>
+    <div class="health" id="health"></div>
   </header>
+
+  <section class="alertbar" id="alertbar" role="alert" aria-live="assertive" hidden>
+    <div class="alertbar-head">
+      <span class="alert-ico" aria-hidden="true">!</span>
+      <strong>Noodmelding</strong>
+      <span class="sub" id="alert-count"></span>
+    </div>
+    <ul class="alert-list" id="alert-list"></ul>
+  </section>
 
   <main class="grid">
     <section class="panel" id="panel-trades" aria-labelledby="h-trades">
       <div class="panel-head">
-        <h2 id="h-trades">Grote transacties</h2>
+        <h2 id="h-trades"><span class="market-chip" data-market-chip></span><span id="t-trades">Grote transacties</span> <span class="sub" id="t-trades-sub"></span></h2>
         <div class="filters" role="group" aria-label="Filters transacties">
-          <div class="seg" data-filter="actor">
-            <button type="button" data-v="all" class="on">Alles</button>
-            <button type="button" data-v="politician">Politici</button>
-            <button type="button" data-v="insider">Insiders</button>
-          </div>
+          <div class="seg" data-filter="actor" id="seg-actor"></div>
           <div class="seg" data-filter="type">
             <button type="button" data-v="all" class="on">Alles</button>
             <button type="button" data-v="buy">Kopen</button>
@@ -40,7 +51,7 @@
           </div>
           <select id="f-min" aria-label="Minimaal bedrag">
             <option value="0">Elk bedrag</option>
-            <option value="100000" selected>vanaf $100k</option>
+            <option value="100000">vanaf $100k</option>
             <option value="1000000">vanaf $1 mln</option>
             <option value="10000000">vanaf $10 mln</option>
           </select>
@@ -49,7 +60,7 @@
       <div class="panel-body">
         <table class="trades">
           <thead>
-            <tr><th>Gemeld</th><th>Wie</th><th>Aandeel</th><th>Actie</th><th class="num">Bedrag</th><th class="num" title="Dagen tussen transactie en melding">Vertraging</th></tr>
+            <tr><th>Gemeld</th><th>Wie</th><th id="th-asset">Aandeel</th><th>Actie</th><th class="num">Bedrag</th><th class="num" title="Dagen tussen transactie en melding">Vertraging</th></tr>
           </thead>
           <tbody id="trades-body"></tbody>
         </table>
@@ -59,7 +70,7 @@
 
     <section class="panel" id="panel-news" aria-labelledby="h-news">
       <div class="panel-head">
-        <h2 id="h-news">Nieuws <span class="sub">gefilterd op betrouwbaarheid</span></h2>
+        <h2 id="h-news"><span class="market-chip" data-market-chip></span><span id="t-news">Nieuws</span> <span class="sub">gefilterd op betrouwbaarheid</span></h2>
         <div class="filters">
           <div class="seg" data-filter="junk">
             <button type="button" data-v="0" class="on">Betrouwbaar</button>
@@ -73,7 +84,7 @@
 
     <section class="panel" id="panel-summary" aria-labelledby="h-summary">
       <div class="panel-head">
-        <h2 id="h-summary">Samenvatting <span class="sub" id="summary-period"></span></h2>
+        <h2 id="h-summary"><span class="market-chip" data-market-chip></span><span id="t-summary">Samenvatting</span> <span class="sub" id="summary-period"></span></h2>
         <div class="filters"><select id="summary-select" aria-label="Eerdere samenvattingen"></select></div>
       </div>
       <div class="panel-body" id="summary-body"></div>
@@ -81,7 +92,7 @@
 
     <section class="panel" id="panel-scores" aria-labelledby="h-scores">
       <div class="panel-head">
-        <h2 id="h-scores">Kooplijst <span class="sub">score 0-100 · kans omhoog ~1 maand</span></h2>
+        <h2 id="h-scores"><span class="market-chip" data-market-chip></span><span id="t-scores">Kooplijst</span> <span class="sub">score 0-100 · kans omhoog ~1 maand</span></h2>
       </div>
       <div class="panel-body">
         <ol class="scores" id="scores-list"></ol>
@@ -91,8 +102,9 @@
   </main>
 
   <footer class="disclaimer">
-    Geen beleggingsadvies. Scores en kansen zijn modelinschattingen op basis van openbare data en kunnen er flink naast
-    zitten. Politici melden transacties tot 45 dagen later, insiders binnen 2 werkdagen. Koersen kunnen vertraagd zijn.
+    Geen beleggingsadvies. Scores, kansen en noodmeldingen zijn modelinschattingen op basis van openbare data en kunnen
+    er flink naast zitten. Politici melden transacties tot 45 dagen later, insiders binnen 2 werkdagen. Grote
+    crypto-transfers zeggen niets over de richting. Koersen kunnen vertraagd zijn.
   </footer>
 
   <div class="drawer-backdrop" id="drawer-backdrop" hidden></div>

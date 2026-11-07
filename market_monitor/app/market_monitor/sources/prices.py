@@ -98,16 +98,21 @@ class PriceSource:
 
     def store(self, ticker: str, parsed: dict) -> None:
         self.db.executemany(
-            "INSERT INTO prices(ticker, date, close) VALUES (?, ?, ?) "
-            "ON CONFLICT(ticker, date) DO UPDATE SET close=excluded.close",
+            "INSERT INTO prices(market, ticker, date, close) VALUES ('stocks', ?, ?, ?) "
+            "ON CONFLICT(market, ticker, date) DO UPDATE SET close=excluded.close",
             [(ticker, d, c) for d, c in parsed["series"]],
         )
+        chg = None
+        if parsed["last_price"] and parsed["prev_close"]:
+            chg = (parsed["last_price"] / parsed["prev_close"] - 1) * 100
         self.db.execute(
-            "INSERT INTO price_meta(ticker, name, currency, last_price, prev_close, fetched_at) "
-            "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(ticker) DO UPDATE SET "
+            "INSERT INTO price_meta(market, ticker, name, currency, last_price, prev_close, chg_24h, fetched_at) "
+            "VALUES ('stocks', ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(market, ticker) DO UPDATE SET "
             "name=COALESCE(excluded.name, price_meta.name), currency=excluded.currency, "
-            "last_price=excluded.last_price, prev_close=excluded.prev_close, fetched_at=excluded.fetched_at",
-            (ticker, parsed["name"], parsed["currency"], parsed["last_price"], parsed["prev_close"], iso(utcnow())),
+            "last_price=excluded.last_price, prev_close=excluded.prev_close, chg_24h=excluded.chg_24h, "
+            "fetched_at=excluded.fetched_at",
+            (ticker, parsed["name"], parsed["currency"], parsed["last_price"], parsed["prev_close"], chg,
+             iso(utcnow())),
         )
 
     def run(self) -> int:

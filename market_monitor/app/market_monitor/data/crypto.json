@@ -1,0 +1,38 @@
+{
+  "_comment": "Crypto-namen -> symbool (hoofdlettergevoelig), stablecoins/afgeleide tokens (niet beoordelen) en aandelen/ETF's die een munt volgen.",
+  "aliases": {
+    "Bitcoin": "BTC", "bitcoin": "BTC", "Ethereum": "ETH", "Ether": "ETH", "ether": "ETH", "Solana": "SOL",
+    "Ripple": "XRP", "XRP": "XRP", "Cardano": "ADA", "Dogecoin": "DOGE", "BNB": "BNB", "Binance Coin": "BNB",
+    "Chainlink": "LINK", "Avalanche": "AVAX", "Polkadot": "DOT", "Tron": "TRX", "TRON": "TRX", "Toncoin": "TON",
+    "Shiba Inu": "SHIB", "Litecoin": "LTC", "Polygon": "POL", "Sui": "SUI", "Pepe": "PEPE", "Uniswap": "UNI",
+    "Stellar": "XLM", "Hyperliquid": "HYPE", "Aptos": "APT", "Arbitrum": "ARB", "Optimism": "OP",
+    "Near Protocol": "NEAR", "Cosmos": "ATOM", "Hedera": "HBAR", "Monero": "XMR", "Bitcoin Cash": "BCH",
+    "Ethereum Classic": "ETC", "Filecoin": "FIL", "Internet Computer": "ICP", "Aave": "AAVE", "Maker": "MKR",
+    "Render": "RENDER", "Injective": "INJ", "Kaspa": "KAS", "Celestia": "TIA", "Bittensor": "TAO",
+    "Ondo": "ONDO", "Jupiter": "JUP", "Worldcoin": "WLD", "Algorand": "ALGO", "VeChain": "VET"
+  },
+  "stablecoins": [
+    "USDT", "USDC", "DAI", "USDE", "FDUSD", "TUSD", "USDS", "PYUSD", "USD1", "BUSD", "USDD", "FRAX", "GUSD",
+    "EURC", "USDP", "RLUSD", "XAUT", "PAXG", "USDTB", "USDX", "BSC-USD", "SUSDE", "SUSDS"
+  ],
+  "derived_tokens": [
+    "WBTC", "STETH", "WSTETH", "WETH", "WEETH", "CBBTC", "RETH", "METH", "BTCB", "LBTC", "SOLVBTC", "JITOSOL",
+    "MSOL", "BNSOL", "CBETH", "EZETH", "RSETH", "WBETH", "TBTC", "CLBTC", "WBT"
+  ],
+  "proxies": {
+    "IBIT": "BTC", "FBTC": "BTC", "ARKB": "BTC", "BITB": "BTC", "GBTC": "BTC", "BTCO": "BTC", "HODL": "BTC",
+    "BRRR": "BTC", "EZBC": "BTC", "BTCW": "BTC", "MSTR": "BTC",
+    "ETHA": "ETH", "FETH": "ETH", "ETHE": "ETH", "ETHW": "ETH", "ETHV": "ETH", "CETH": "ETH", "QETH": "ETH",
+    "BMNR": "ETH", "SBET": "ETH",
+    "COIN": null, "HOOD": null, "MARA": null, "RIOT": null, "CLSK": null, "HUT": null, "CIFR": null,
+    "BITO": "BTC", "GLXY": null, "CRCL": null
+  },
+  "ticker_stoplist": [
+    "A", "I", "AI", "ALL", "ARE", "CAN", "CEO", "CFO", "ETF", "ETFS", "FOR", "GDP", "IPO", "IT", "NEW", "NOW",
+    "ONE", "OUT", "SEC", "THE", "USA", "US", "UK", "EU", "FED", "CPI", "AND", "BIG", "BUY", "EPS", "IRS", "LLC",
+    "NFT", "NFTS", "DEFI", "DAO", "DEX", "CEX", "KYC", "AML", "API", "TVL", "ATH", "FUD", "HODL", "WEB", "GAS",
+    "GOP", "DOJ", "CFTC", "OCC", "FDIC", "AM", "PM", "ON", "SO", "GO", "BE", "DO", "HAS", "HE", "IS", "IN",
+    "OF", "OR", "TO", "UP", "VS", "WAS", "WHY", "YOU", "OP", "NEAR", "BOND", "MOVE", "SAFE", "JUST", "BEST",
+    "HOT", "KEY", "ACE", "CAT", "DOG", "PUMP", "MEME", "TRUMP"
+  ]
+}

@@ -2,68 +2,104 @@ configuration:
   sec_user_agent:
     name: SEC User-Agent (naam + e-mail)
     description: >-
-      Verplicht door de SEC voor het ophalen van insidermeldingen. Vul in als "Jan Jansen jan@voorbeeld.nl".
-      Wordt alleen naar sec.gov gestuurd.
-  anthropic_api_key:
-    name: Anthropic API-sleutel (optioneel)
+      Verplicht door de SEC voor insidermeldingen en bedrijfsaankopen van crypto. Vul in als
+      "Jan Jansen jan@voorbeeld.nl". Wordt alleen naar sec.gov gestuurd.
+  notify_service:
+    name: "Meldingen: notify-service van je telefoon"
     description: >-
-      Voor AI-samenvattingen door Claude (console.anthropic.com). Zonder sleutel maakt de app zelf een
+      Bijvoorbeeld mobile_app_iphone_van_jan (zie Ontwikkelhulpmiddelen > Acties > notify.*). Daar komen de
+      noodmeldingen en (optioneel) de uurlijkse samenvatting binnen.
+  notify_summaries:
+    name: "Meldingen: samenvatting elk uur als pushbericht"
+  alerts_enabled:
+    name: "Meldingen: noodmeldingen aan"
+    description: Direct een alert als er iets groots aan lijkt te komen (koersexplosie, groot nieuws, insiders die samen kopen, ...).
+  alert_sensitivity:
+    name: "Meldingen: gevoeligheid"
+    description: laag = alleen heel uitzonderlijke signalen, hoog = sneller een melding.
+  alert_critical:
+    name: "Meldingen: noodmelding doorbreekt stil/niet storen"
+    description: iPhone kritieke melding, Android alarmgeluid. Uit = alleen hoge prioriteit.
+  ai_check_alerts:
+    name: "Meldingen: laat Claude een noodmelding eerst controleren"
+    description: Alleen met API-sleutel. Houdt hype en losse geruchten tegen.
+  max_alerts_per_day:
+    name: "Meldingen: maximaal aantal noodmeldingen per dag"
+  anthropic_api_key:
+    name: "AI: Anthropic API-sleutel (optioneel)"
+    description: >-
+      Voor samenvattingen door Claude (console.anthropic.com). Zonder sleutel maakt de app zelf een
       automatische samenvatting.
   anthropic_model:
-    name: Claude-model
-    description: >-
-      Standaard claude-opus-5-5 (beste kwaliteit). claude-sonnet-5-5 of claude-haiku-5-5 zijn veel goedkoper.
+    name: "AI: Claude-model"
+    description: Standaard claude-opus-5-5 (beste kwaliteit). claude-sonnet-5-5 of claude-haiku-5-5 zijn veel goedkoper.
   anthropic_effort:
-    name: Denkniveau van Claude
+    name: "AI: denkniveau"
     description: Hoeveel moeite het model doet (low is sneller en goedkoper, high grondiger).
   summary_language:
-    name: Taal samenvatting
+    name: "AI: taal samenvatting"
   summary_interval_minutes:
     name: Samenvatting elke ... minuten
-  watchlist:
-    name: Volglijst (tickers)
-    description: Aandelen die altijd in de kooplijst worden beoordeeld, bv. AAPL, ASML, NVDA.
+  enable_stocks:
+    name: "Aandelen: aan"
+  stock_watchlist:
+    name: "Aandelen: volglijst (tickers)"
+    description: Aandelen die altijd worden beoordeeld, bv. AAPL, ASML, NVDA.
+  stock_news_queries:
+    name: "Aandelen: zoektermen nieuws"
+  stock_x_accounts:
+    name: "Aandelen: X-accounts om te volgen"
+  enable_sec_form4:
+    name: "Aandelen: SEC insiders (Form 4)"
+  enable_house:
+    name: "Aandelen: Huis van Afgevaardigden (VS)"
+  enable_senate:
+    name: "Aandelen: Senaat (VS)"
+  quiver_api_key:
+    name: "Aandelen: Quiver Quantitative API-sleutel (optioneel, betaald)"
   min_trade_value_usd:
     name: Minimale transactiegrootte (USD)
     description: Transacties vanaf dit bedrag gelden als "groot" in de samenvatting.
   big_trade_alert_usd:
-    name: Alert-drempel (USD)
-    description: Vanaf dit bedrag vuurt de add-on het event market_monitor_big_trade af in Home Assistant.
-  min_news_credibility:
-    name: Minimale geloofwaardigheid nieuws (0-1)
-    description: Berichten daaronder worden weggefilterd. Hoger = strenger.
-  enable_sec_form4:
-    name: SEC insiders (Form 4)
-  enable_house:
-    name: Huis van Afgevaardigden (VS)
-  enable_senate:
-    name: Senaat (VS)
+    name: Event-drempel grote transactie (USD)
+    description: Vanaf dit bedrag vuurt de add-on het event market_monitor_big_trade af.
+  enable_crypto:
+    name: "Crypto: aan"
+  crypto_watchlist:
+    name: "Crypto: volglijst (symbolen)"
+    description: Munten die altijd worden beoordeeld, bv. BTC, ETH, SOL.
+  crypto_news_queries:
+    name: "Crypto: zoektermen nieuws"
+  crypto_x_accounts:
+    name: "Crypto: X-accounts om te volgen"
+  enable_crypto_treasury:
+    name: "Crypto: bedrijfsaankopen via SEC 8-K (bv. Strategy)"
+  enable_btc_whales:
+    name: "Crypto: grote bitcoin-transfers (walvissen)"
+  crypto_whale_min_usd:
+    name: "Crypto: minimale walvis-transfer (USD)"
+  coingecko_api_key:
+    name: "Crypto: CoinGecko demo-sleutel (optioneel, gratis)"
+    description: Ruimere limieten bij CoinGecko; aan te maken op coingecko.com/api.
   enable_rss:
-    name: RSS-feeds van betrouwbare media
+    name: "Nieuws: RSS-feeds van betrouwbare media"
   enable_google_news:
-    name: Google News
+    name: "Nieuws: Google News"
   enable_gdelt:
-    name: GDELT (wereldwijd nieuws)
-  news_queries:
-    name: Zoektermen nieuws
-    description: Zoektermen voor Google News en GDELT.
+    name: "Nieuws: GDELT (wereldwijd nieuws)"
   extra_rss_feeds:
-    name: Extra RSS-feeds
-    description: Eigen feeds (volledige URL's), bv. van een nieuwssite of blog die je vertrouwt.
+    name: "Nieuws: extra RSS-feeds (aandelen)"
+  extra_crypto_rss_feeds:
+    name: "Nieuws: extra RSS-feeds (crypto)"
   trusted_domains:
-    name: Vertrouwde domeinen
-    description: Domeinen die je extra vertrouwt, bv. fd.nl.
+    name: "Nieuws: vertrouwde domeinen"
   blocked_domains:
-    name: Geblokkeerde domeinen
-    description: Domeinen die altijd worden weggefilterd.
-  quiver_api_key:
-    name: Quiver Quantitative API-sleutel (optioneel, betaald)
-    description: Extra bron voor transacties van Congresleden, inclusief partij.
+    name: "Nieuws: geblokkeerde domeinen"
+  min_news_credibility:
+    name: "Nieuws: minimale geloofwaardigheid (0-1)"
+    description: Berichten daaronder worden weggefilterd. Hoger = strenger.
   x_bearer_token:
     name: X (Twitter) bearer token (optioneel, betaald)
-    description: Om posts van belangrijke accounts op X te volgen.
-  x_accounts:
-    name: X-accounts om te volgen
   publish_to_home_assistant:
     name: Sensoren publiceren in Home Assistant
   log_level:

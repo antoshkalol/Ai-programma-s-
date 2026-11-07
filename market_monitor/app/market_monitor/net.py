@@ -27,6 +27,9 @@ HOST_RATES = {
     "query2.finance.yahoo.com": 2.0,
     "stooq.com": 1.0,
     "news.google.com": 1.0,
+    "efts.sec.gov": 4.0,
+    "api.coingecko.com": 0.2,     # gratis limiet is laag: max ~12 per minuut
+    "blockchain.info": 1.0,
 }
 
 

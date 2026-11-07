@@ -15,6 +15,7 @@ import feedparser
 import requests
 
 from ..db import iso
+from ..markets import coin_names
 from ..net import fetch
 
 log = logging.getLogger(__name__)
@@ -33,6 +34,17 @@ DEFAULT_FEEDS = [
     ("SEC", "https://www.sec.gov/news/pressreleases.rss"),
     ("NOS Economie", "https://feeds.nos.nl/nosnieuwseconomie"),
     ("Seeking Alpha", "https://seekingalpha.com/market_currents.xml"),
+]
+
+CRYPTO_FEEDS = [
+    ("CoinDesk", "https://www.coindesk.com/arc/outboundfeeds/rss/"),
+    ("The Block", "https://www.theblock.co/rss.xml"),
+    ("Blockworks", "https://blockworks.co/feed"),
+    ("Decrypt", "https://decrypt.co/feed"),
+    ("Cointelegraph", "https://cointelegraph.com/rss"),
+    ("Bitcoin Magazine", "https://bitcoinmagazine.com/.rss/full/"),
+    ("CryptoSlate", "https://cryptoslate.com/feed/"),
+    ("DL News", "https://www.dlnews.com/arc/outboundfeeds/rss/"),
 ]
 
 TAG_RE = re.compile(r"<[^>]+>")
@@ -130,14 +142,18 @@ def parse_gdelt(data: dict) -> list[dict]:
 class RssSource:
     name = "rss"
 
-    def __init__(self, cfg, session: requests.Session, ingest):
+    def __init__(self, cfg, session: requests.Session, ingest, market: str = "stocks"):
         self.cfg = cfg
         self.session = session
         self.ingest = ingest
+        self.market = market
 
     def feeds(self) -> list[tuple[str, str]]:
-        feeds = list(DEFAULT_FEEDS)
-        for url in self.cfg.extra_rss_feeds:
+        if self.market == "crypto":
+            feeds, extra = list(CRYPTO_FEEDS), self.cfg.extra_crypto_rss_feeds
+        else:
+            feeds, extra = list(DEFAULT_FEEDS), self.cfg.extra_rss_feeds
+        for url in extra:
             feeds.append((domain_of(url) or "Eigen feed", url))
         return feeds
 
@@ -162,14 +178,24 @@ class GoogleNewsSource:
     name = "google_news"
     URL = "https://news.google.com/rss/search?q={q}+when:1h&hl=en-US&gl=US&ceid=US:en"
 
-    def __init__(self, cfg, session: requests.Session, ingest):
+    def __init__(self, cfg, session: requests.Session, ingest, market: str = "stocks"):
         self.cfg = cfg
         self.session = session
         self.ingest = ingest
+        self.market = market
+
+    def queries(self) -> list[str]:
+        base = list(self.cfg.news_queries(self.market))
+        if self.market == "crypto":
+            names = coin_names()
+            base += [f"{names.get(s, s)} crypto" for s in self.cfg.crypto_watchlist[:8]]
+        else:
+            base += [f"{t} stock" for t in self.cfg.stock_watchlist[:10]]
+        return list(dict.fromkeys(base))
 
     def run(self) -> int:
         items: list[dict] = []
-        queries = list(self.cfg.news_queries) + [f"{t} stock" for t in self.cfg.watchlist[:10]]
+        queries = self.queries()
         failed = 0
         last_exc = None
         for q in queries:
@@ -193,13 +219,14 @@ class GdeltSource:
         "&maxrecords=150&timespan=30min&sort=datedesc"
     )
 
-    def __init__(self, cfg, session: requests.Session, ingest):
+    def __init__(self, cfg, session: requests.Session, ingest, market: str = "stocks"):
         self.cfg = cfg
         self.session = session
         self.ingest = ingest
+        self.market = market
 
     def run(self) -> int:
-        terms = " OR ".join(f'"{q}"' if " " in q else q for q in self.cfg.news_queries[:8])
+        terms = " OR ".join(f'"{q}"' if " " in q else q for q in self.cfg.news_queries(self.market)[:8])
         query = f"({terms}) sourcelang:english"
         resp = fetch(self.session, self.URL.format(q=quote_plus(query)), timeout=30)
         resp.raise_for_status()

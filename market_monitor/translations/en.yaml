@@ -1,54 +1,87 @@
 configuration:
   sec_user_agent:
     name: SEC User-Agent (name + email)
-    description: Required by the SEC to fetch insider filings, e.g. "Jane Doe jane@example.com". Only sent to sec.gov.
+    description: Required by the SEC, e.g. "Jane Doe jane@example.com". Only sent to sec.gov.
+  notify_service:
+    name: "Notifications: notify service of your phone"
+    description: e.g. mobile_app_janes_iphone. Emergency alerts and (optionally) the hourly summary go here.
+  notify_summaries:
+    name: "Notifications: hourly summary as push"
+  alerts_enabled:
+    name: "Notifications: emergency alerts on"
+  alert_sensitivity:
+    name: "Notifications: sensitivity (laag = low, normaal = normal, hoog = high)"
+  alert_critical:
+    name: "Notifications: alerts break through silent/do not disturb"
+  ai_check_alerts:
+    name: "Notifications: let Claude check an alert first"
+  max_alerts_per_day:
+    name: "Notifications: max emergency alerts per day"
   anthropic_api_key:
-    name: Anthropic API key (optional)
-    description: Enables AI summaries by Claude. Without a key the add-on writes an automatic summary.
+    name: "AI: Anthropic API key (optional)"
   anthropic_model:
-    name: Claude model
+    name: "AI: Claude model"
     description: Default claude-opus-5-5 (best quality). claude-sonnet-5-5 or claude-haiku-5-5 cost much less.
   anthropic_effort:
-    name: Claude effort level
+    name: "AI: effort level"
   summary_language:
-    name: Summary language
+    name: "AI: summary language"
   summary_interval_minutes:
     name: Summary every ... minutes
-  watchlist:
-    name: Watchlist (tickers)
+  enable_stocks:
+    name: "Stocks: enabled"
+  stock_watchlist:
+    name: "Stocks: watchlist"
+  stock_news_queries:
+    name: "Stocks: news search terms"
+  stock_x_accounts:
+    name: "Stocks: X accounts to follow"
+  enable_sec_form4:
+    name: "Stocks: SEC insiders (Form 4)"
+  enable_house:
+    name: "Stocks: US House"
+  enable_senate:
+    name: "Stocks: US Senate"
+  quiver_api_key:
+    name: "Stocks: Quiver Quantitative API key (optional, paid)"
   min_trade_value_usd:
     name: Minimum trade size (USD)
   big_trade_alert_usd:
-    name: Alert threshold (USD)
-    description: Fires the market_monitor_big_trade event in Home Assistant from this amount.
-  min_news_credibility:
-    name: Minimum news credibility (0-1)
-  enable_sec_form4:
-    name: SEC insiders (Form 4)
-  enable_house:
-    name: US House of Representatives
-  enable_senate:
-    name: US Senate
+    name: Big trade event threshold (USD)
+  enable_crypto:
+    name: "Crypto: enabled"
+  crypto_watchlist:
+    name: "Crypto: watchlist (symbols)"
+  crypto_news_queries:
+    name: "Crypto: news search terms"
+  crypto_x_accounts:
+    name: "Crypto: X accounts to follow"
+  enable_crypto_treasury:
+    name: "Crypto: company purchases via SEC 8-K"
+  enable_btc_whales:
+    name: "Crypto: large bitcoin transfers (whales)"
+  crypto_whale_min_usd:
+    name: "Crypto: minimum whale transfer (USD)"
+  coingecko_api_key:
+    name: "Crypto: CoinGecko demo key (optional, free)"
   enable_rss:
-    name: RSS feeds of trusted media
+    name: "News: RSS feeds of trusted media"
   enable_google_news:
-    name: Google News
+    name: "News: Google News"
   enable_gdelt:
-    name: GDELT (global news)
-  news_queries:
-    name: News search terms
+    name: "News: GDELT (global news)"
   extra_rss_feeds:
-    name: Extra RSS feeds
+    name: "News: extra RSS feeds (stocks)"
+  extra_crypto_rss_feeds:
+    name: "News: extra RSS feeds (crypto)"
   trusted_domains:
-    name: Trusted domains
+    name: "News: trusted domains"
   blocked_domains:
-    name: Blocked domains
-  quiver_api_key:
-    name: Quiver Quantitative API key (optional, paid)
+    name: "News: blocked domains"
+  min_news_credibility:
+    name: "News: minimum credibility (0-1)"
   x_bearer_token:
     name: X (Twitter) bearer token (optional, paid)
-  x_accounts:
-    name: X accounts to follow
   publish_to_home_assistant:
     name: Publish sensors to Home Assistant
   log_level:

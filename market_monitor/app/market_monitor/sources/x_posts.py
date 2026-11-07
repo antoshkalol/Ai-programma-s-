@@ -59,17 +59,20 @@ def parse_tweets(data: dict) -> list[dict]:
 class XSource:
     name = "x_posts"
 
-    def __init__(self, cfg, db: Database, session: requests.Session, ingest):
+    def __init__(self, cfg, db: Database, session: requests.Session, ingest, market: str = "stocks"):
         self.cfg = cfg
         self.db = db
         self.session = session
         self.ingest = ingest
+        self.market = market
 
     def run(self) -> int:
-        since = self.db.get_state("x_since_id")
+        state_key = f"x_since_id_{self.market}"
+        accounts = self.cfg.x_accounts(self.market)
+        since = self.db.get_state(state_key)
         newest = since
         items: list[dict] = []
-        for q in build_queries(self.cfg.x_accounts):
+        for q in build_queries(accounts):
             params = {
                 "query": q,
                 "max_results": "50",
@@ -95,5 +98,5 @@ class XSource:
             if nid and (not newest or int(nid) > int(newest)):
                 newest = nid
         if newest:
-            self.db.set_state("x_since_id", newest)
-        return self.ingest(items, trusted_authors={a.lower() for a in self.cfg.x_accounts})
+            self.db.set_state(state_key, newest)
+        return self.ingest(items, trusted_authors={a.lower() for a in accounts})

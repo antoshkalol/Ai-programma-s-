@@ -1,9 +1,10 @@
 name: Market Monitor
-version: "0.1.0"
+version: "0.2.0"
 slug: market_monitor
 description: >-
-  Volgt grote aandelentransacties van politici en bedrijfsinsiders, filtert het nieuws op
-  betrouwbaarheid en maakt elk halfuur een samenvatting met koopscores.
+  Volgt grote transacties op de aandelen- en cryptomarkt (politici, insiders, bedrijven, walvissen),
+  filtert het nieuws op betrouwbaarheid, maakt elk uur een samenvatting en geeft direct een noodmelding
+  als er iets groots aan lijkt te komen.
 url: https://github.com/antoshkalol/Ai-programma-s-
 arch:
   - aarch64
@@ -22,12 +23,20 @@ ports_description:
   8099/tcp: Dashboard direct openen zonder Home Assistant (optioneel, bv. voor een aparte monitor)
 options:
   sec_user_agent: ""
+  notify_service: ""
+  notify_summaries: true
+  alerts_enabled: true
+  alert_sensitivity: normaal
+  alert_critical: true
+  ai_check_alerts: true
+  max_alerts_per_day: 6
   anthropic_api_key: ""
   anthropic_model: claude-opus-5-5
   anthropic_effort: medium
   summary_language: nl
-  summary_interval_minutes: 30
-  watchlist:
+  summary_interval_minutes: 60
+  enable_stocks: true
+  stock_watchlist:
     - AAPL
     - MSFT
     - NVDA
@@ -38,27 +47,13 @@ options:
     - AVGO
     - JPM
     - ASML
-  min_trade_value_usd: 100000
-  big_trade_alert_usd: 1000000
-  min_news_credibility: 0.45
-  enable_sec_form4: true
-  enable_house: true
-  enable_senate: true
-  enable_rss: true
-  enable_google_news: true
-  enable_gdelt: true
-  news_queries:
+  stock_news_queries:
     - stock market
     - earnings
     - insider buying
     - Federal Reserve
     - Wall Street
-  extra_rss_feeds: []
-  trusted_domains: []
-  blocked_domains: []
-  quiver_api_key: ""
-  x_bearer_token: ""
-  x_accounts:
+  stock_x_accounts:
     - elonmusk
     - realDonaldTrump
     - WhiteHouse
@@ -69,37 +64,106 @@ options:
     - WSJmarkets
     - CNBC
     - DeItaone
+  enable_sec_form4: true
+  enable_house: true
+  enable_senate: true
+  quiver_api_key: ""
+  min_trade_value_usd: 100000
+  big_trade_alert_usd: 1000000
+  enable_crypto: true
+  crypto_watchlist:
+    - BTC
+    - ETH
+    - SOL
+    - XRP
+    - BNB
+    - DOGE
+    - ADA
+    - LINK
+    - AVAX
+    - SUI
+  crypto_news_queries:
+    - bitcoin
+    - ethereum
+    - crypto market
+    - crypto ETF
+    - SEC crypto
+  crypto_x_accounts:
+    - saylor
+    - VitalikButerin
+    - brian_armstrong
+    - cz_binance
+    - EricBalchunas
+    - coindesk
+    - TheBlock__
+    - tier10k
+    - glassnode
+    - WhaleAlert
+  enable_crypto_treasury: true
+  enable_btc_whales: true
+  crypto_whale_min_usd: 50000000
+  coingecko_api_key: ""
+  enable_rss: true
+  enable_google_news: true
+  enable_gdelt: true
+  extra_rss_feeds: []
+  extra_crypto_rss_feeds: []
+  trusted_domains: []
+  blocked_domains: []
+  min_news_credibility: 0.45
+  x_bearer_token: ""
   publish_to_home_assistant: true
   log_level: info
 schema:
   sec_user_agent: str?
+  notify_service: str?
+  notify_summaries: bool
+  alerts_enabled: bool
+  alert_sensitivity: list(laag|normaal|hoog)
+  alert_critical: bool
+  ai_check_alerts: bool
+  max_alerts_per_day: int(1,50)
   anthropic_api_key: password?
   anthropic_model: str
   anthropic_effort: list(low|medium|high|xhigh|max)
   summary_language: list(nl|en)
-  summary_interval_minutes: int(5,240)
-  watchlist:
+  summary_interval_minutes: int(15,240)
+  enable_stocks: bool
+  stock_watchlist:
     - str?
-  min_trade_value_usd: int(0,)
-  big_trade_alert_usd: int(0,)
-  min_news_credibility: float(0,1)
+  stock_news_queries:
+    - str?
+  stock_x_accounts:
+    - str?
   enable_sec_form4: bool
   enable_house: bool
   enable_senate: bool
+  quiver_api_key: password?
+  min_trade_value_usd: int(0,)
+  big_trade_alert_usd: int(0,)
+  enable_crypto: bool
+  crypto_watchlist:
+    - str?
+  crypto_news_queries:
+    - str?
+  crypto_x_accounts:
+    - str?
+  enable_crypto_treasury: bool
+  enable_btc_whales: bool
+  crypto_whale_min_usd: int(1000000,)
+  coingecko_api_key: password?
   enable_rss: bool
   enable_google_news: bool
   enable_gdelt: bool
-  news_queries:
-    - str?
   extra_rss_feeds:
+    - str?
+  extra_crypto_rss_feeds:
     - str?
   trusted_domains:
     - str?
   blocked_domains:
     - str?
-  quiver_api_key: password?
+  min_news_credibility: float(0,1)
   x_bearer_token: password?
-  x_accounts:
-    - str?
   publish_to_home_assistant: bool
   log_level: list(debug|info|warning|error)

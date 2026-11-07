@@ -3,7 +3,34 @@
   "use strict";
 
   const REFRESH_MS = 60 * 1000;
-  const state = { actor: "all", type: "all", min: 100000, junk: "0", summaries: [], summaryId: null };
+  const ALERT_POLL_MS = 20 * 1000;
+  const ROTATE_MS = 45 * 1000;
+  const TEXT = {
+    stocks: {
+      label: "Aandelen", trades: "Grote transacties", tradesSub: "politici en insiders", asset: "Aandeel",
+      news: "Nieuws", summary: "Samenvatting", scores: "Kooplijst", min: 100000,
+      actors: [["all", "Alles"], ["politician", "Politici"], ["insider", "Insiders"]],
+      refreshJobs: ["sec_form4", "rss_stocks", "google_news_stocks", "gdelt_stocks", "x_stocks", "quiver", "prices_stocks", "scoring_stocks"],
+    },
+    crypto: {
+      label: "Crypto", trades: "Grote transacties", tradesSub: "bedrijven, walvissen en crypto-ETF's", asset: "Munt",
+      news: "Nieuws", summary: "Samenvatting", scores: "Kooplijst", min: 0,
+      actors: [["all", "Alles"], ["company", "Bedrijven"], ["whale", "Walvissen"], ["proxy", "Politici/insiders"]],
+      refreshJobs: ["crypto_markets", "crypto_treasury", "btc_whales", "rss_crypto", "google_news_crypto", "gdelt_crypto", "x_crypto", "crypto_history", "scoring_crypto"],
+    },
+  };
+  function store(key, value) { try { localStorage.setItem(key, value); } catch (e) { /* geen opslag */ } }
+  function recall(key, fallback) { try { return localStorage.getItem(key) || fallback; } catch (e) { return fallback; } }
+  const hashMarket = (location.hash || "").replace("#", "");
+  const state = {
+    market: TEXT[hashMarket] ? hashMarket : (TEXT[recall("mm-market", "")] ? recall("mm-market", "") : "stocks"),
+    actor: "all", type: "all", min: 100000, junk: "0", summaries: [], summaryId: null,
+    markets: ["stocks", "crypto"], sound: recall("mm-sound", "off") === "on",
+    rotate: hashMarket === "rotate" || recall("mm-rotate", "off") === "on",
+    lastAlertId: +recall("mm-last-alert", "0"), alerts: [],
+  };
+  state.min = TEXT[state.market].min;
+  const q = (path) => path + (path.includes("?") ? "&" : "?") + "market=" + state.market;
 
   // ------------------------------------------------------------------ helpers
   function el(tag, attrs, ...children) {
@@ -60,6 +87,10 @@
   function fmtPrice(v, cur) {
     if (v === null || v === undefined) return "-";
     const sym = !cur || cur === "USD" ? "$" : cur === "EUR" ? "€" : cur + " ";
+    if (Math.abs(v) > 0 && Math.abs(v) < 1) {
+      // kleine crypto-koersen (bv. 0,00001234) met genoeg significante cijfers
+      return sym + new Intl.NumberFormat("nl-NL", { maximumSignificantDigits: 4 }).format(v);
+    }
     return sym + nf2.format(v);
   }
   function parseTime(s) { return s ? new Date(s.length === 10 ? s + "T00:00:00Z" : s) : null; }
@@ -84,11 +115,21 @@
     return d && !isNaN(d) ? d.toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" }) : "";
   }
   const ACTION = { buy: "Koop", sell: "Verkoop", other: "Melding" };
+  const actionLabel = (t) => (t.actor_type === "whale" ? "Transfer" : ACTION[t.tx_type] || t.tx_type);
   const MOOD = { positief: "pos", negatief: "neg", neutraal: "mid", gemengd: "mid" };
   const JOB_NAMES = {
-    sec_form4: "SEC insiders", house: "Huis (VS)", senate: "Senaat (VS)", quiver: "Quiver", rss: "RSS",
-    google_news: "Google News", gdelt: "GDELT", x_posts: "X", prices: "Koersen", scoring: "Scores",
-    summary: "Samenvatting", calibration: "Kalibratie", cleanup: "Opschonen",
+    sec_form4: "SEC insiders", house: "Huis (VS)", senate: "Senaat (VS)", quiver: "Quiver",
+    rss_stocks: "RSS", google_news_stocks: "Google News", gdelt_stocks: "GDELT", x_stocks: "X",
+    prices_stocks: "Koersen", scoring_stocks: "Scores",
+    crypto_markets: "CoinGecko", crypto_history: "Koershistorie", crypto_treasury: "Bedrijfsaankopen (SEC)",
+    btc_whales: "BTC-walvissen", rss_crypto: "RSS", google_news_crypto: "Google News", gdelt_crypto: "GDELT",
+    x_crypto: "X", scoring_crypto: "Scores",
+    summary: "Samenvatting", alerts: "Noodmeldingen", calibration: "Kalibratie", cleanup: "Opschonen",
+  };
+  const KIND_NAMES = {
+    koersexplosie: "Koersexplosie", bedrijf_koopt: "Bedrijf koopt", insider_cluster: "Insiders kopen samen",
+    insider_groot: "Grote insider-aankoop", politicus_groot: "Grote aankoop politicus", koersuitbraak: "Koersuitbraak",
+    groot_nieuws: "Groot nieuws", score_sprong: "Score-sprong",
   };
 
   function grade(c) {
@@ -130,7 +171,10 @@
 
   // ------------------------------------------------------------------ overview
   async function loadOverview() {
-    const o = await api("overview");
+    const o = await api(q("overview"));
+    state.markets = o.markets.map((m) => m.key);
+    document.querySelectorAll("#market-tabs button").forEach((b) => { b.hidden = !state.markets.includes(b.dataset.market); });
+    if (!state.markets.includes(state.market) && state.markets.length) { switchMarket(state.markets[0]); return; }
     const mood = $("mood");
     clear(mood);
     const s = o.summary && o.summary.content;
@@ -151,7 +195,8 @@
     const h = $("health");
     clear(h);
     const byName = Object.fromEntries(o.jobs.map((j) => [j.name, j]));
-    const shown = o.scheduled.filter((n) => !["calibration", "cleanup"].includes(n));
+    const shown = o.scheduled.filter((n) => !["calibration", "cleanup"].includes(n)
+      && [state.market, "all"].includes(o.job_markets[n]));
     shown.forEach((name) => {
       const j = byName[name];
       let cls = "idle", ico = "…", title = "Nog niet gedraaid";
@@ -160,7 +205,7 @@
       h.appendChild(el("span", { class: "status " + cls, title }, el("span", { class: "ico", text: ico }), JOB_NAMES[name] || name));
     });
     const cfg = o.config;
-    if (!cfg.sec_user_agent && cfg.enable_sec_form4) {
+    if (!cfg.sec_user_agent && (cfg.enable_sec_form4 || cfg.enable_crypto_treasury)) {
       h.appendChild(el("span", { class: "status bad", title: "Vul sec_user_agent in bij de add-on opties" },
         el("span", { class: "ico", text: "!" }), "SEC e-mail ontbreekt"));
     }
@@ -169,17 +214,25 @@
 
   // ------------------------------------------------------------------ trades
   async function loadTrades() {
-    const rows = await api(`trades?actor=${state.actor}&type=${state.type}&min_value=${state.min}&days=30&limit=200`);
+    const rows = await api(q(`trades?actor=${state.actor}&type=${state.type}&min_value=${state.min}&days=30&limit=200`));
     const body = $("trades-body");
     clear(body);
     $("trades-empty").hidden = rows.length > 0;
     rows.forEach((t) => {
+      // In het crypto-tabblad openen ETF-/aandeeltransacties de onderliggende munt
+      const target = state.market === "crypto" && t.proxy_for && t.proxy_for !== "crypto" ? t.proxy_for : t.ticker;
       const tickerCell = t.ticker
-        ? el("button", { type: "button", class: "ticker-btn", text: t.ticker, onclick: () => openDrawer(t.ticker) })
+        ? el("button", { type: "button", class: "ticker-btn", text: t.ticker, onclick: () => openDrawer(target) })
         : el("span", { text: "-" });
       const tags = [];
       if (t.planned) tags.push(el("span", { class: "tag", title: "Vooraf ingepland via 10b5-1 handelsplan", text: "plan" }));
       if (t.party) tags.push(el("span", { class: "tag", text: t.party }));
+      if (state.market === "crypto" && t.proxy_for) {
+        tags.push(el("span", { class: "tag", title: "Aandeel/ETF dat crypto volgt", text: "volgt " + t.proxy_for }));
+      }
+      if (t.actor_type === "whale" && t.shares) {
+        tags.push(el("span", { class: "tag", text: nf0.format(t.shares) + " " + (t.ticker || "") }));
+      }
       const delay = t.delay_days;
       body.appendChild(
         el("tr", null,
@@ -187,7 +240,7 @@
           el("td", null, el("span", { class: "who", text: t.actor_name }), ...tags,
             el("span", { class: "role", text: " " + (t.actor_role || "") })),
           el("td", null, tickerCell, el("span", { class: "company", title: t.company || "", text: t.company || t.note || "" })),
-          el("td", null, el("span", { class: "act " + t.tx_type, text: ACTION[t.tx_type] || t.tx_type }),
+          el("td", null, el("span", { class: "act " + t.tx_type, text: actionLabel(t) }),
             el("span", { class: "m-amount", text: fmtAmount(t) })),
           el("td", { class: "num" }, t.url ? el("a", { href: t.url, target: "_blank", rel: "noopener", text: fmtAmount(t) }) : fmtAmount(t)),
           el("td", { class: "num" + (delay > 20 ? " late" : "") }, delay === null || delay === undefined ? "-" : delay + " d"),
@@ -198,7 +251,7 @@
 
   // ------------------------------------------------------------------ news
   async function loadNews() {
-    const rows = await api(`news?junk=${state.junk}&limit=150`);
+    const rows = await api(q(`news?junk=${state.junk}&limit=150`));
     const list = $("news-list");
     clear(list);
     $("news-empty").hidden = rows.length > 0;
@@ -229,7 +282,7 @@
 
   // ------------------------------------------------------------------ summary
   async function loadSummaries() {
-    const rows = await api("summaries?limit=24");
+    const rows = await api(q("summaries?limit=24"));
     state.summaries = rows;
     const sel = $("summary-select");
     const keep = state.summaryId;
@@ -269,7 +322,7 @@
     section("Kernpunten", c.key_points);
     section("Opvallende transacties", c.notable_trades);
     if (c.tickers && c.tickers.length) {
-      wrap.appendChild(el("h3", { text: "Sentiment per aandeel" }));
+      wrap.appendChild(el("h3", { text: state.market === "crypto" ? "Sentiment per munt" : "Sentiment per aandeel" }));
       wrap.appendChild(el("div", { class: "tick-sent" }, c.tickers.slice(0, 12).map((t) => {
         const cls = t.sentiment > 0.15 ? "pos" : t.sentiment < -0.15 ? "neg" : "mid";
         return el("span", { title: t.reason || "" }, el("span", { class: "dot " + cls }),
@@ -281,12 +334,19 @@
       wrap.appendChild(el("div", { class: "buy-view", text: c.buy_view }));
     }
     section("Let op", c.watch_out);
+    const log = state.alerts.filter((a) => a.market === state.market);
+    if (log.length) {
+      wrap.appendChild(el("h3", { text: "Noodmeldingen (24 uur)" }));
+      wrap.appendChild(el("ul", { class: "alerts-log" }, log.slice(0, 8).map((a) => el("li", { title: a.ai_note || "" },
+        el("span", { class: "st", text: a.status === "verzonden" ? "verzonden" : "onderdrukt" }),
+        fmtTime(a.created_at) + " " + a.title))));
+    }
     body.appendChild(wrap);
   }
 
   // ------------------------------------------------------------------ scores
   async function loadScores() {
-    const rows = await api("scores?limit=25");
+    const rows = await api(q("scores?limit=25"));
     const list = $("scores-list");
     clear(list);
     $("scores-empty").hidden = rows.length > 0;
@@ -438,7 +498,7 @@
     $("drawer-backdrop").hidden = false;
     d.focus();
     let data;
-    try { data = await api("ticker/" + encodeURIComponent(ticker)); } catch (e) { $("d-name").textContent = "Kon gegevens niet laden"; return; }
+    try { data = await api(q("ticker/" + encodeURIComponent(ticker))); } catch (e) { $("d-name").textContent = "Kon gegevens niet laden"; return; }
     const meta = data.meta || {};
     $("d-name").textContent = (meta.name || "") + (meta.last_price ? " · " + fmtPrice(meta.last_price, meta.currency) : "");
     const sc = data.score;
@@ -450,7 +510,9 @@
         el("div", { class: "kpi" }, el("div", { class: "label", text: "Instapmoment" }), el("div", { class: "timing " + tcls, style: "font-size:13px;margin-top:6px" }, el("span", { class: "ico", text: tico }), sc.timing)),
       ));
       body.appendChild(el("h3", { text: "Signalen (links negatief, rechts positief)" }));
-      const names = { insider: "Insiders", politician: "Politici", news: "Nieuws", momentum: "Koers" };
+      const names = state.market === "crypto"
+        ? { institutional: "Instituties", news: "Nieuws", momentum: "Koers" }
+        : { insider: "Insiders", politician: "Politici", news: "Nieuws", momentum: "Koers" };
       Object.entries(names).forEach(([k, label]) => {
         const v = sc.components[k] || 0;
         body.appendChild(el("div", { class: "comp" }, el("span", { text: label }), divBar(v, label + " " + v), el("span", { class: "v", text: (v >= 0 ? "+" : "") + nf2.format(v) })));
@@ -481,7 +543,7 @@
     body.appendChild(el("h3", { text: "Transacties (90 dagen)" }));
     if (data.trades.length) {
       body.appendChild(el("ul", { class: "plain" }, data.trades.map((t) => el("li", null,
-        el("span", { class: "act " + t.tx_type, text: ACTION[t.tx_type] }), " ",
+        el("span", { class: "act " + t.tx_type, text: actionLabel(t) }), " ",
         el("strong", { text: t.actor_name }), el("span", { class: "role", text: " " + (t.actor_role || "") + " · " }),
         t.url ? el("a", { href: t.url, target: "_blank", rel: "noopener", text: fmtAmount(t) }) : fmtAmount(t),
         el("span", { class: "role", text: " · gemeld " + fmtDate(t.filed_at) + (t.delay_days !== null && t.delay_days !== undefined ? " (" + t.delay_days + " d na transactie)" : "") })))));
@@ -526,10 +588,118 @@
     const btn = $("btn-refresh");
     btn.disabled = true;
     btn.textContent = "Bezig...";
-    const jobs = ["sec_form4", "rss", "google_news", "gdelt", "x_posts", "quiver", "prices", "scoring"];
+    const jobs = TEXT[state.market].refreshJobs.concat(["alerts"]);
     await Promise.all(jobs.map((j) => fetch("api/run/" + j, { method: "POST" }).catch(() => null)));
     setTimeout(() => { refreshAll(); btn.disabled = false; btn.textContent = "Verversen"; }, 8000);
   });
+
+  // ------------------------------------------------------------------ markt wisselen
+  function renderActorSeg() {
+    const seg = $("seg-actor");
+    clear(seg);
+    TEXT[state.market].actors.forEach(([v, label]) => {
+      seg.appendChild(el("button", { type: "button", "data-v": v, class: v === state.actor ? "on" : null, text: label }));
+    });
+  }
+  function applyMarketTexts() {
+    const t = TEXT[state.market];
+    document.body.dataset.market = state.market;
+    document.querySelectorAll("#market-tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.market === state.market)));
+    document.querySelectorAll("[data-market-chip]").forEach((c) => { c.textContent = t.label; });
+    $("t-trades").textContent = t.trades;
+    $("t-trades-sub").textContent = t.tradesSub;
+    $("t-news").textContent = t.news;
+    $("t-summary").textContent = t.summary;
+    $("t-scores").textContent = t.scores;
+    $("th-asset").textContent = t.asset;
+    $("f-min").value = String(state.min);
+    document.title = "Market Monitor - " + t.label;
+    renderActorSeg();
+  }
+  function switchMarket(m) {
+    if (!TEXT[m] || m === state.market) return;
+    state.market = m;
+    state.actor = "all";
+    state.min = TEXT[m].min;
+    state.summaryId = null;
+    store("mm-market", m);
+    if (!state.rotate) history.replaceState(null, "", "#" + m);
+    closeDrawer();
+    applyMarketTexts();
+    refreshAll();
+  }
+  document.querySelectorAll("#market-tabs button").forEach((b) => b.addEventListener("click", () => switchMarket(b.dataset.market)));
+
+  let rotateTimer = null;
+  function applyRotate() {
+    $("btn-rotate").textContent = "Wissel: " + (state.rotate ? "aan" : "uit");
+    clearInterval(rotateTimer);
+    if (state.rotate) {
+      rotateTimer = setInterval(() => {
+        if ($("drawer").classList.contains("open")) return;
+        const i = state.markets.indexOf(state.market);
+        switchMarket(state.markets[(i + 1) % state.markets.length]);
+      }, ROTATE_MS);
+    }
+  }
+  $("btn-rotate").addEventListener("click", () => { state.rotate = !state.rotate; store("mm-rotate", state.rotate ? "on" : "off"); applyRotate(); });
+
+  // ------------------------------------------------------------------ noodmeldingen
+  let audioCtx = null;
+  function beep() {
+    if (!state.sound) return;
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      [0, 0.35, 0.7].forEach((t) => {
+        const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+        o.type = "square"; o.frequency.value = 880;
+        g.gain.setValueAtTime(0.0001, audioCtx.currentTime + t);
+        g.gain.exponentialRampToValueAtTime(0.25, audioCtx.currentTime + t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + t + 0.25);
+        o.connect(g).connect(audioCtx.destination);
+        o.start(audioCtx.currentTime + t); o.stop(audioCtx.currentTime + t + 0.3);
+      });
+    } catch (e) { /* geen audio beschikbaar */ }
+  }
+  function applySound() { $("btn-sound").textContent = "Geluid: " + (state.sound ? "aan" : "uit"); }
+  $("btn-sound").addEventListener("click", () => {
+    state.sound = !state.sound;
+    store("mm-sound", state.sound ? "on" : "off");
+    applySound();
+    if (state.sound) beep(); // ontgrendelt audio in de browser en laat horen hoe het klinkt
+  });
+
+  async function loadAlerts() {
+    const rows = await api("alerts?hours=24");
+    state.alerts = rows;
+    const active = rows.filter((a) => a.status === "verzonden" && !a.acknowledged
+      && Date.now() - parseTime(a.created_at).getTime() < 12 * 3600 * 1000);
+    const bar = $("alertbar");
+    const list = $("alert-list");
+    clear(list);
+    bar.hidden = active.length === 0;
+    $("alert-count").textContent = active.length > 1 ? active.length + " actief" : "";
+    active.forEach((a) => {
+      const label = TEXT[a.market] ? TEXT[a.market].label : a.market;
+      const view = el("button", { type: "button", text: "Bekijk" });
+      view.addEventListener("click", () => { if (a.market !== state.market) switchMarket(a.market); if (a.asset) openDrawer(a.asset); });
+      const ack = el("button", { type: "button", text: "Gezien" });
+      ack.addEventListener("click", async () => { await fetch("api/alerts/" + a.id + "/ack", { method: "POST" }); loadAlerts(); });
+      list.appendChild(el("li", null,
+        el("div", { class: "alert-title" }, el("span", { class: "market-chip", style: "border-left-color: var(" + (a.market === "crypto" ? "--series-2" : "--series-1") + ")", text: label }),
+          a.title, el("span", { class: "alert-meta", text: (KIND_NAMES[a.kind] || a.kind) + " · " + timeAgo(a.created_at) })),
+        el("div", { class: "alert-msg", text: a.message || "" }),
+        a.ai_note ? el("div", { class: "alert-ai", text: "AI: " + a.ai_note }) : null,
+        el("div", { class: "alert-actions" }, view, ack)));
+    });
+    const newest = active.reduce((m, a) => Math.max(m, a.id), 0);
+    if (newest > state.lastAlertId) {
+      state.lastAlertId = newest;
+      store("mm-last-alert", String(newest));
+      bar.classList.remove("flash"); void bar.offsetWidth; bar.classList.add("flash");
+      beep();
+    }
+  }
 
   // Thema: automatisch -> donker -> licht
   const themes = ["auto", "dark", "light"];
@@ -538,20 +708,23 @@
     else document.documentElement.setAttribute("data-theme", t);
     $("btn-theme").textContent = "Thema: " + ({ auto: "auto", dark: "donker", light: "licht" })[t];
   }
-  let theme = "auto";
-  try { theme = localStorage.getItem("mm-theme") || "auto"; } catch (e) { /* geen opslag beschikbaar */ }
+  let theme = recall("mm-theme", "auto");
   applyTheme(theme);
   $("btn-theme").addEventListener("click", () => {
     theme = themes[(themes.indexOf(theme) + 1) % themes.length];
-    try { localStorage.setItem("mm-theme", theme); } catch (e) { /* negeren */ }
+    store("mm-theme", theme);
     applyTheme(theme);
   });
 
   function refreshAll() {
-    return Promise.allSettled([loadOverview(), loadTrades(), loadNews(), loadSummaries(), loadScores()]).then((res) => {
+    return Promise.allSettled([loadOverview(), loadTrades(), loadNews(), loadAlerts().then(loadSummaries), loadScores()]).then((res) => {
       res.forEach((r) => { if (r.status === "rejected") console.error(r.reason); });
     });
   }
+  applyMarketTexts();
+  applySound();
+  applyRotate();
   refreshAll();
   setInterval(refreshAll, REFRESH_MS);
+  setInterval(() => loadAlerts().catch(console.error), ALERT_POLL_MS);
 })();

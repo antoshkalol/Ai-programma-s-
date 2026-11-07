@@ -119,6 +119,59 @@ h2 { font-size: 15px; font-weight: 600; margin: 0; }
   background: linear-gradient(135deg, var(--series-1), var(--series-2));
 }
 .mood, .stats, .health { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; color: var(--text-2); font-size: 13px; min-width: 0; }
+.health { flex-basis: 100%; font-size: 12px; }
+
+/* Markt-splitsing: elke markt heeft een eigen accent (identiteit, geen betekenis) */
+body[data-market="stocks"] { --mk: var(--series-1); }
+body[data-market="crypto"] { --mk: var(--series-2); }
+.market-tabs { display: inline-flex; gap: 4px; background: var(--surface-2); border-radius: 10px; padding: 3px; }
+.market-tabs button {
+  border: 0; background: transparent; padding: 6px 16px; font-weight: 600; border-radius: 8px; color: var(--text-2);
+  position: relative;
+}
+.market-tabs button[aria-selected="true"] { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,0.12); }
+.market-tabs button[aria-selected="true"]::after {
+  content: ""; position: absolute; left: 14px; right: 14px; bottom: 2px; height: 2px; border-radius: 1px; background: var(--mk);
+}
+.market-tabs button[data-market="stocks"][aria-selected="true"]::after { background: var(--series-1); }
+.market-tabs button[data-market="crypto"][aria-selected="true"]::after { background: var(--series-2); }
+.market-chip {
+  display: inline-block; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-2); border: 1px solid var(--border); border-left: 3px solid var(--mk);
+  border-radius: 5px; padding: 1px 6px; margin-right: 8px; vertical-align: 2px;
+}
+.panel { border-top: 3px solid var(--mk); }
+
+/* Noodmelding */
+.alertbar {
+  margin: 12px 16px 0; border: 1px solid var(--critical); border-left: 6px solid var(--critical);
+  background: color-mix(in srgb, var(--critical) 10%, var(--surface)); border-radius: 12px; padding: 10px 14px;
+}
+.alertbar.flash { animation: flash 1s ease-in-out 3; }
+@keyframes flash { 50% { background: color-mix(in srgb, var(--critical) 28%, var(--surface)); } }
+.alertbar-head { display: flex; align-items: center; gap: 8px; }
+.alert-ico {
+  display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--critical); color: #ffffff; font-weight: 800; font-size: 14px;
+}
+.alert-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; max-height: 24vh; overflow: auto; }
+.alert-list li {
+  display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: start;
+  padding-top: 8px; border-top: 1px solid var(--border);
+}
+.alert-list li:first-child { border-top: 0; padding-top: 0; }
+.alert-title { font-weight: 650; }
+.alert-msg, .alert-ai {
+  color: var(--text-2); font-size: 13px; grid-column: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.alert-ai { font-size: 12px; font-style: italic; }
+.alert-list li:focus-within .alert-msg, .alert-list li:hover .alert-msg,
+.alert-list li:focus-within .alert-ai, .alert-list li:hover .alert-ai { white-space: normal; }
+.alert-actions { grid-column: 2; grid-row: 1 / span 3; display: flex; gap: 6px; align-items: start; }
+.alert-meta { color: var(--muted); font-size: 12px; font-weight: 400; margin-left: 6px; }
+.alerts-log li { font-size: 13px; }
+.alerts-log .st { font-size: 11px; border: 1px solid var(--border); border-radius: 6px; padding: 0 5px; margin-right: 6px; color: var(--text-2); }
 .stats strong { color: var(--text); font-variant-numeric: tabular-nums; }
 .actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .updated { color: var(--muted); font-size: 12px; }
@@ -144,7 +197,7 @@ h2 { font-size: 15px; font-weight: 600; margin: 0; }
   .grid {
     grid-template-columns: 1.15fr 1fr;
     grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
-    height: calc(100vh - 110px);
+    height: calc(100vh - 140px);
     min-height: 640px;
   }
 }
@@ -269,6 +322,10 @@ ol.scores li:hover { background: var(--surface-2); }
 @media (max-width: 640px) {
   .topbar, .grid { padding-left: 16px; padding-right: 16px; }
   .health { display: none; }
+  .market-tabs { order: -1; width: 100%; }
+  .market-tabs button { flex: 1; }
+  .alert-list li { grid-template-columns: 1fr; }
+  .alert-actions { grid-column: 1; grid-row: auto; }
   ol.scores li { grid-template-columns: 22px 1fr 60px; row-gap: 6px; }
   ol.scores li .rank { grid-column: 1; grid-row: 1; }
   ol.scores li > div:nth-child(2) { grid-column: 2; grid-row: 1; }

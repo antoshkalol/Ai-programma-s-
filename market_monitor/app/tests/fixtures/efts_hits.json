@@ -1,0 +1,9 @@
+{"took": 12, "hits": {"total": {"value": 2, "relation": "eq"}, "hits": [
+  {"_index": "edgar_file", "_id": "0009999999-26-000045:ex99-1.htm", "_score": 10.5,
+   "_source": {"ciks": ["0009999999"], "display_names": ["Example Treasury Corp  (EXTC)  (CIK 0009999999)"],
+               "file_date": "2026-11-03", "form": "8-K", "root_forms": ["8-K"], "adsh": "0009999999-26-000045",
+               "file_type": "EX-99.1", "items": ["7.01", "8.01"]}},
+  {"_index": "edgar_file", "_id": "0008888888-26-000010:risk.htm", "_score": 2.1,
+   "_source": {"ciks": ["0008888888"], "display_names": ["Unrelated Bank Inc  (CIK 0008888888)"],
+               "file_date": "2026-11-02", "form": "8-K", "adsh": "0008888888-26-000010"}}
+]}}

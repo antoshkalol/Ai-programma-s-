@@ -13,8 +13,8 @@ def test_load_config_from_options(tmp_path):
         "x_accounts": ["@elonmusk"], "anthropic_effort": "bogus", "enable_gdelt": False,
     }))
     cfg = load_config(str(tmp_path))
-    assert cfg.sec_headers_ok and cfg.watchlist == ["AAPL", "ASML"]
-    assert cfg.summary_interval_minutes == 5 and cfg.x_accounts == ["elonmusk"]
+    assert cfg.sec_headers_ok and cfg.stock_watchlist == ["AAPL", "ASML"]  # oude naam werkt nog
+    assert cfg.summary_interval_minutes == 15 and cfg.stock_x_accounts == ["elonmusk"]
     assert cfg.anthropic_effort == "medium" and cfg.enable_gdelt is False
     pub = cfg.public_dict()
     assert pub["anthropic_api_key"] is False and pub["sec_user_agent"] is True
@@ -38,7 +38,7 @@ def test_api_endpoints(tmp_path):
     assert len(c.get("/api/trades?min_value=100000").json) == 1  # verkoop van $5k valt af
     assert c.get("/api/trades?type=sell").json[0]["id"] == "i1"
     assert c.get("/api/ticker/exro").json["ticker"] == "EXRO"
-    assert c.post("/api/run/scoring").json["ok"] is True
+    assert c.post("/api/run/scoring_stocks").json["ok"] is True
     assert c.post("/api/run/doesnotexist").status_code == 404
     o = c.get("/api/overview").json
     assert o["stats"]["trades_24h"] == 2 and "sec_form4" in o["scheduled"]
@@ -67,6 +67,6 @@ def test_hass_publish(monkeypatch, cfg, db):
     ])
     urls = [u for u, _ in calls]
     assert urls == ["http://supervisor/core/api/events/market_monitor_big_trade",
-                    "http://supervisor/core/api/states/sensor.market_monitor_last_big_trade"]
+                    "http://supervisor/core/api/states/sensor.market_monitor_stocks_last_big_trade"]
     assert calls[0][1]["value_text"] == "$2,5 mln"
     assert calls[1][1]["state"].startswith("Jane Doe (CEO) kocht EXRO")

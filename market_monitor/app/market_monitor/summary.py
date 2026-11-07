@@ -1,4 +1,4 @@
-"""Samenvatting van wat er het afgelopen halfuur binnenkwam.
+"""Samenvatting per markt (aandelen en crypto) van wat er het afgelopen uur binnenkwam.
 
 Met een Anthropic API-sleutel schrijft Claude de samenvatting (en markeert hij hype/geruchten).
 Zonder sleutel maakt de app zelf een automatische samenvatting op basis van de data.
@@ -12,8 +12,10 @@ import re
 from collections import defaultdict
 from datetime import timedelta
 
+from .config import MARKET_LABELS
 from .db import Database, iso, utcnow
-from .scoring import fmt_usd
+from .markets import crypto_proxies
+from .scoring import fmt_num, fmt_usd
 
 log = logging.getLogger(__name__)
 
@@ -22,27 +24,29 @@ EFFORT_UNSUPPORTED_PREFIXES = (
 )
 TICKER_OK = re.compile(r"^[A-Z0-9][A-Z0-9.\-]{0,11}$")
 
-SYSTEM_PROMPT = """Je bent een nuchtere financieel analist. Elk halfuur schrijf je een korte briefing voor een \
-particuliere belegger die een dashboard op een monitor bekijkt. Je krijgt als JSON: het nieuws en de posts van het \
-afgelopen halfuur (met betrouwbaarheid van de bron en het aantal bronnen dat hetzelfde meldt), nieuw gemelde \
-aandelentransacties van politici en bedrijfsinsiders, en de huidige top van aandelen volgens het scoremodel van het \
-dashboard (met koerstrend en instapmoment).
+SYSTEM_PROMPT = """Je bent een nuchtere financieel analist. Je schrijft periodiek een korte briefing voor een \
+particuliere belegger die een dashboard op een monitor bekijkt. Elke briefing gaat over precies een markt: \
+aandelen of crypto (zie "markt"). Je krijgt als JSON: het nieuws en de posts van de afgelopen periode (met \
+betrouwbaarheid van de bron en het aantal bronnen dat hetzelfde meldt), nieuw gemelde grote transacties, en de \
+huidige top volgens het scoremodel van het dashboard (met koerstrend en instapmoment).
 
 Regels:
 - Baseer je uitsluitend op de aangeleverde gegevens. Verzin geen cijfers, koersen, namen of gebeurtenissen.
 - Scheid feiten van geruchten. Iets dat alleen door een minder betrouwbare bron of een enkele X-post wordt gemeld, \
 noem je onbevestigd.
-- unreliable_items: geef de indexnummers ("i") van berichten die hype, clickbait, promotie (pump), ongefundeerde \
-geruchten of irrelevant voor beleggers zijn. Laat de lijst leeg als alles in orde is.
-- Transacties van politici worden tot 45 dagen na de transactie gemeld; zeg dat als je ze noemt. Bij insiders zeggen \
+- unreliable_items: geef de indexnummers ("i") van berichten die hype, clickbait, promotie (pump, presales, \
+'next 100x'), ongefundeerde geruchten of irrelevant voor beleggers zijn. Laat de lijst leeg als alles in orde is.
+- Aandelen: transacties van politici worden tot 45 dagen later gemeld; zeg dat als je ze noemt. Bij insiders zeggen \
 aankopen meer dan verkopen, en 10b5-1-plannen zijn vooraf ingepland en dus minder informatief.
-- tickers: geef voor elk aandeel dat duidelijk in het nieuws of de transacties voorkomt een sentiment van -1 (zeer \
-negatief) tot 1 (zeer positief), met een reden van maximaal 15 woorden.
-- buy_view: bespreek in 2 tot 4 zinnen welke aandelen uit de top er nu het interessantst uitzien, gezien score, \
+- Crypto: grote on-chain transfers ('walvissen') zeggen niets over de richting; vaak zijn het interne verschuivingen \
+van beurzen. Aankopen door bedrijven (uit SEC-meldingen) en door politici/insiders van crypto-ETF's zijn concreter.
+- tickers: geef voor elk aandeel of elke munt die duidelijk in het nieuws of de transacties voorkomt een sentiment \
+van -1 (zeer negatief) tot 1 (zeer positief), met een reden van maximaal 15 woorden. Gebruik het symbool (bv. NVDA, BTC).
+- buy_view: bespreek in 2 tot 4 zinnen welke kandidaten uit de top er nu het interessantst uitzien, gezien score, \
 koerstrend en instapmoment, en noem het grootste risico. Geef nooit garanties en formuleer het als inschatting; dit \
 is geen beleggingsadvies.
 - key_points: 3 tot 7 punten van maximaal 30 woorden, belangrijkste eerst. Was er weinig nieuws, zeg dat dan gewoon.
-- headline: een zin die het halfuur samenvat."""
+- headline: een zin die de periode samenvat."""
 
 OUTPUT_SCHEMA = {
     "type": "object",
@@ -77,16 +81,30 @@ OUTPUT_SCHEMA = {
 
 
 def describe_trade(t: dict) -> str:
+    what = t.get("ticker") or t.get("company") or "onbekend"
+    role = f" ({t['actor_role']})" if t.get("actor_role") else ""
+    if t.get("actor_type") == "whale":
+        return f"{t['actor_name']} verplaatste {fmt_num(t.get('shares') or 0)} {what} ({fmt_usd(t.get('value_usd'))})"
     action = {"buy": "kocht", "sell": "verkocht"}.get(t["tx_type"], "meldde transactie in")
-    if t["actor_type"] == "politician" and t.get("value_low"):
+    if t.get("actor_type") == "politician" and t.get("value_low"):
         amount = (f"{fmt_usd(t['value_low'])}-{fmt_usd(t['value_high'])}" if t.get("value_high")
                   else f"meer dan {fmt_usd(t['value_low'])}")
     else:
         amount = fmt_usd(t.get("value_usd"))
-    what = t.get("ticker") or t.get("company") or "onbekend"
-    role = f" ({t['actor_role']})" if t.get("actor_role") else ""
+    if t.get("actor_type") == "company" and t.get("shares"):
+        amount = f"{fmt_num(t['shares'])} {what}, {amount}"
+        return f"{t['actor_name']}{role} {action} {amount}"
     plan = " [10b5-1 plan]" if t.get("planned") else ""
     return f"{t['actor_name']}{role} {action} {what} voor {amount}{plan}"
+
+
+def trades_sql(market: str) -> tuple[str, list]:
+    """WHERE-deel voor transacties van een markt. Crypto omvat ook crypto-ETF's/-aandelen van politici/insiders."""
+    if market == "crypto":
+        proxies = list(crypto_proxies())
+        ph = ",".join("?" * len(proxies))
+        return f"(market='crypto' OR (market='stocks' AND ticker IN ({ph})))", proxies
+    return "market='stocks'", []
 
 
 class Summarizer:
@@ -97,12 +115,12 @@ class Summarizer:
         self._client = None
 
     # ------------------------------------------------------------------ data
-    def gather(self, start: str, end: str) -> dict:
+    def gather(self, market: str, start: str, end: str) -> dict:
         rows = self.db.query(
             "SELECT id, source, domain, kind, title, credibility, corroboration, cluster_id, tickers, sentiment,"
-            " published_at FROM news WHERE is_junk=0 AND kind != 'post' AND published_at >= ? AND published_at <= ? "
-            "ORDER BY (credibility * corroboration) DESC LIMIT 150",
-            (start, end),
+            " published_at FROM news WHERE market=? AND is_junk=0 AND kind != 'post' AND published_at >= ?"
+            " AND published_at <= ? ORDER BY (credibility * corroboration) DESC LIMIT 150",
+            (market, start, end),
         )
         # Eén bericht per verhaal (cluster): het meest geloofwaardige; 'corroboration' telt de bronnen
         news, seen_clusters = [], set()
@@ -115,23 +133,25 @@ class Summarizer:
         news = news[:60]
         posts = self.db.query(
             "SELECT id, source, author, title, tickers, published_at, credibility FROM news "
-            "WHERE is_junk=0 AND kind='post' AND published_at >= ? AND published_at <= ? "
+            "WHERE market=? AND is_junk=0 AND kind='post' AND published_at >= ? AND published_at <= ? "
             "ORDER BY published_at DESC LIMIT 30",
-            (start, end),
+            (market, start, end),
         )
         filtered = self.db.query_one(
-            "SELECT COUNT(*) n FROM news WHERE is_junk=1 AND published_at >= ? AND published_at <= ?", (start, end)
+            "SELECT COUNT(*) n FROM news WHERE market=? AND is_junk=1 AND published_at >= ? AND published_at <= ?",
+            (market, start, end),
         )["n"]
+        where, args = trades_sql(market)
         trades = self.db.query(
-            "SELECT * FROM trades WHERE created_at >= ? AND created_at <= ? AND tx_type IN ('buy','sell') "
-            "ORDER BY COALESCE(value_usd, 0) DESC LIMIT 40",
-            (start, end),
+            f"SELECT * FROM trades WHERE {where} AND created_at >= ? AND created_at <= ? "
+            "AND (tx_type IN ('buy','sell') OR actor_type='whale') ORDER BY COALESCE(value_usd, 0) DESC LIMIT 40",
+            (*args, start, end),
         )
         big_trades = [
             t for t in trades
-            if (t["value_usd"] or 0) >= self.cfg.min_trade_value_usd or t["actor_type"] == "politician"
+            if (t["value_usd"] or 0) >= self.cfg.min_trade_value_usd or t["actor_type"] in ("politician", "company")
         ]
-        scores = self.db.query("SELECT * FROM scores_latest ORDER BY score DESC LIMIT 8")
+        scores = self.db.query("SELECT * FROM scores_latest WHERE market=? ORDER BY score DESC LIMIT 8", (market,))
         for s in scores:
             s["reasons"] = json.loads(s["reasons"] or "[]")
         for n in news + posts:
@@ -143,18 +163,24 @@ class Summarizer:
     def run(self, now=None) -> int:
         end_dt = now or utcnow()
         start_dt = end_dt - timedelta(minutes=self.cfg.summary_interval_minutes)
-        start, end = iso(start_dt), iso(end_dt)
-        data = self.gather(start, end)
+        done = 0
+        for market in self.cfg.markets:
+            self.run_market(market, iso(start_dt), iso(end_dt))
+            done += 1
+        return done
+
+    def run_market(self, market: str, start: str, end: str) -> dict:
+        data = self.gather(market, start, end)
         content, method = None, "automatisch"
         if self.cfg.llm_enabled:
             try:
-                content = self.llm_summary(data, start, end)
+                content = self.llm_summary(market, data, start, end)
                 method = "ai"
             except Exception as exc:  # noqa: BLE001 - dan valt hij terug op de automatische samenvatting
-                log.error("AI-samenvatting mislukt, automatische samenvatting gebruikt: %s", exc)
+                log.error("AI-samenvatting (%s) mislukt, automatische samenvatting gebruikt: %s", market, exc)
                 content = None
         if content is None:
-            content = self.extractive_summary(data)
+            content = self.extractive_summary(market, data)
         content["stats"] = {
             "news": len(data["news"]),
             "posts": len(data["posts"]),
@@ -164,10 +190,10 @@ class Summarizer:
         if method == "ai":
             content["model"] = self.cfg.anthropic_model
         self.db.execute(
-            "INSERT INTO summaries(period_start, period_end, created_at, method, content) VALUES (?,?,?,?,?)",
-            (start, end, iso(utcnow()), method, json.dumps(content, ensure_ascii=False)),
+            "INSERT INTO summaries(market, period_start, period_end, created_at, method, content) VALUES (?,?,?,?,?,?)",
+            (market, start, end, iso(utcnow()), method, json.dumps(content, ensure_ascii=False)),
         )
-        return 1
+        return content
 
     # ------------------------------------------------------------------ AI
     def client(self):
@@ -177,7 +203,33 @@ class Summarizer:
             self._client = anthropic.Anthropic(api_key=self.cfg.anthropic_api_key, timeout=180.0, max_retries=2)
         return self._client
 
-    def build_payload(self, data: dict, start: str, end: str) -> tuple[str, list[str]]:
+    def ask_json(self, system: str, text: str, schema: dict, effort: str | None = None,
+                 max_tokens: int = 16000) -> dict:
+        """Eén Claude-aanroep met gestructureerde JSON-uitvoer (gebruikt door samenvatting en noodmelding)."""
+        output_config: dict = {"format": {"type": "json_schema", "schema": schema}}
+        if not self.cfg.anthropic_model.startswith(EFFORT_UNSUPPORTED_PREFIXES):
+            output_config["effort"] = effort or self.cfg.anthropic_effort
+        kwargs = dict(
+            model=self.cfg.anthropic_model,
+            max_tokens=max_tokens,
+            system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
+            messages=[{"role": "user", "content": text}],
+            output_config=output_config,
+        )
+        client = self.client()
+        if self.cfg.model_supports_fallback:
+            # Bij een (zeldzame) weigering laat de API een ander model het verzoek afmaken
+            resp = client.beta.messages.create(betas=["server-side-fallback-2026-07-01"], fallbacks="default", **kwargs)
+        else:
+            resp = client.messages.create(**kwargs)
+        if resp.stop_reason in ("refusal", "max_tokens"):
+            raise RuntimeError(f"AI stopte met stop_reason={resp.stop_reason}")
+        out_text = next((b.text for b in resp.content if b.type == "text"), None)
+        if not out_text:
+            raise RuntimeError("AI gaf geen tekst terug")
+        return json.loads(out_text)
+
+    def build_payload(self, market: str, data: dict, start: str, end: str) -> tuple[str, list[str]]:
         index_ids: list[str] = []
         news = []
         for n in data["news"] + data["posts"]:
@@ -194,10 +246,11 @@ class Summarizer:
                     "titel": n.get("title"),
                 }
             )
+        type_names = {"politician": "politicus", "insider": "insider", "company": "bedrijf", "whale": "walvis"}
         trades = [
             {
                 "beschrijving": describe_trade(t),
-                "type": "politicus" if t["actor_type"] == "politician" else "insider",
+                "type": type_names.get(t["actor_type"], t["actor_type"]),
                 "transactiedatum": t.get("tx_date"),
                 "gemeld": t.get("filed_at"),
             }
@@ -216,6 +269,7 @@ class Summarizer:
         ]
         lang = "Nederlands" if self.cfg.summary_language.lower().startswith("nl") else "English"
         payload = {
+            "markt": MARKET_LABELS[market].lower(),
             "periode": {"van": start, "tot": end},
             "taal": lang,
             "nieuws_en_posts": news,
@@ -223,40 +277,19 @@ class Summarizer:
             "nieuwe_transacties": trades,
             "top_scores": scores,
         }
-        text = (
-            f"Schrijf de briefing in het {lang}.\n\n" + json.dumps(payload, ensure_ascii=False, indent=1)
+        text = f"Schrijf de briefing over de {MARKET_LABELS[market].lower()}markt in het {lang}.\n\n" + json.dumps(
+            payload, ensure_ascii=False, indent=1
         )
         return text, index_ids
 
-    def llm_summary(self, data: dict, start: str, end: str) -> dict:
-        text, index_ids = self.build_payload(data, start, end)
-        output_config: dict = {"format": {"type": "json_schema", "schema": OUTPUT_SCHEMA}}
-        if not self.cfg.anthropic_model.startswith(EFFORT_UNSUPPORTED_PREFIXES):
-            output_config["effort"] = self.cfg.anthropic_effort
-        kwargs = dict(
-            model=self.cfg.anthropic_model,
-            max_tokens=16000,
-            system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
-            messages=[{"role": "user", "content": text}],
-            output_config=output_config,
-        )
-        client = self.client()
-        if self.cfg.model_supports_fallback:
-            # Bij een (zeldzame) weigering laat de API een ander model het verzoek afmaken
-            resp = client.beta.messages.create(betas=["server-side-fallback-2026-07-01"], fallbacks="default", **kwargs)
-        else:
-            resp = client.messages.create(**kwargs)
-        if resp.stop_reason in ("refusal", "max_tokens"):
-            raise RuntimeError(f"AI stopte met stop_reason={resp.stop_reason}")
-        out_text = next((b.text for b in resp.content if b.type == "text"), None)
-        if not out_text:
-            raise RuntimeError("AI gaf geen tekst terug")
-        result = json.loads(out_text)
-        self._apply_ai_side_effects(result, index_ids)
+    def llm_summary(self, market: str, data: dict, start: str, end: str) -> dict:
+        text, index_ids = self.build_payload(market, data, start, end)
+        result = self.ask_json(SYSTEM_PROMPT, text, OUTPUT_SCHEMA)
+        self._apply_ai_side_effects(market, result, index_ids)
         result.pop("unreliable_items", None)
         return result
 
-    def _apply_ai_side_effects(self, result: dict, index_ids: list[str]) -> None:
+    def _apply_ai_side_effects(self, market: str, result: dict, index_ids: list[str]) -> None:
         now = iso(utcnow())
         rows = []
         for t in result.get("tickers", []):
@@ -267,9 +300,9 @@ class Summarizer:
                 s = max(-1.0, min(1.0, float(t.get("sentiment", 0))))
             except (TypeError, ValueError):
                 continue
-            rows.append((tk, now, s, str(t.get("reason", ""))[:200]))
+            rows.append((market, tk, now, s, str(t.get("reason", ""))[:200]))
         self.db.executemany(
-            "INSERT INTO ticker_sentiment(ticker, created_at, sentiment, reason) VALUES (?,?,?,?)", rows
+            "INSERT INTO ticker_sentiment(market, ticker, created_at, sentiment, reason) VALUES (?,?,?,?,?)", rows
         )
         bad = [index_ids[i] for i in result.get("unreliable_items", []) if isinstance(i, int) and 0 <= i < len(index_ids)]
         if bad and self.ingestor is not None:
@@ -277,7 +310,7 @@ class Summarizer:
         result["filtered_by_ai"] = len(bad)
 
     # ------------------------------------------------------------------ zonder AI
-    def extractive_summary(self, data: dict) -> dict:
+    def extractive_summary(self, market: str, data: dict) -> dict:
         news = data["news"]
         posts = data["posts"]
         key_points = []
@@ -287,7 +320,7 @@ class Summarizer:
         for p in posts[:2]:
             key_points.append(f"{p['source']}: {p['title'][:160]}")
         if not key_points:
-            key_points = ["Rustig halfuur: geen nieuwe geloofwaardige berichten binnengekomen."]
+            key_points = ["Rustige periode: geen nieuwe geloofwaardige berichten binnengekomen."]
 
         sentiments = [n["sentiment"] for n in news if n.get("sentiment") is not None]
         avg = sum(sentiments) / len(sentiments) if sentiments else 0.0
@@ -305,26 +338,27 @@ class Summarizer:
             for t in n["tickers"]:
                 per_ticker[t].append(n["sentiment"] or 0)
         tickers = [
-            {"ticker": t, "sentiment": round(sum(v) / len(v), 2), "reason": f"{len(v)} bericht(en) in dit halfuur"}
+            {"ticker": t, "sentiment": round(sum(v) / len(v), 2), "reason": f"{len(v)} bericht(en) in deze periode"}
             for t, v in sorted(per_ticker.items(), key=lambda x: -len(x[1]))[:8]
         ]
         trades = [describe_trade(t) for t in data["trades"][:6]]
         if any(t["actor_type"] == "politician" for t in data["trades"]):
             trades.append("Let op: politici melden transacties tot 45 dagen later.")
+        if any(t["actor_type"] == "whale" for t in data["trades"]):
+            trades.append("Walvis-transfers zeggen niets over de richting (vaak beurs-intern).")
 
         top = [s for s in data["scores"] if s["score"] >= 55][:3]
+        basis = ("bedrijfsaankopen, nieuws en koerstrend" if market == "crypto"
+                 else "insider- en politici-aankopen, nieuws en koerstrend")
         if top:
             parts = [
                 f"{s['ticker']} (score {s['score']:.0f}, kans omhoog ~{s['prob_up'] * 100:.0f}%, {s['timing'].lower()})"
                 for s in top
             ]
-            buy_view = (
-                "Hoogste scores op dit moment: " + "; ".join(parts) + ". "
-                "Dit is een modelinschatting op basis van insider- en politici-aankopen, nieuws en koerstrend; "
-                "geen beleggingsadvies."
-            )
+            buy_view = (f"Hoogste scores op dit moment: {'; '.join(parts)}. Dit is een modelinschatting op basis van "
+                        f"{basis}; geen beleggingsadvies.")
         else:
-            buy_view = "Geen aandelen met een duidelijk positief totaalsignaal op dit moment."
+            buy_view = "Geen kandidaten met een duidelijk positief totaalsignaal op dit moment."
 
         watch = []
         if data["filtered"]:
@@ -335,7 +369,7 @@ class Summarizer:
             if len(watch) >= 4:
                 break
 
-        headline = news[0]["title"] if news else "Rustig halfuur zonder groot nieuws"
+        headline = news[0]["title"] if news else "Rustige periode zonder groot nieuws"
         return {
             "headline": headline,
             "market_mood": mood,
@@ -347,8 +381,8 @@ class Summarizer:
         }
 
 
-def latest_summary(db: Database) -> dict | None:
-    row = db.query_one("SELECT * FROM summaries ORDER BY id DESC LIMIT 1")
+def latest_summary(db: Database, market: str) -> dict | None:
+    row = db.query_one("SELECT * FROM summaries WHERE market=? ORDER BY id DESC LIMIT 1", (market,))
     if not row:
         return None
     row["content"] = json.loads(row["content"])

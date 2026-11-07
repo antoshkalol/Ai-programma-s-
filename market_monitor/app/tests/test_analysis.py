@@ -43,7 +43,7 @@ def test_ingest_clusters_filters_and_extracts(cfg, db, fixture_text):
     items = news_src.parse_rss(fixture_text("google_news.xml"), "Google News", google_news=True)
     for it in items:
         it["published_at"] = _now(5)
-    ing = NewsIngestor(cfg, db, TickerExtractor(db, cfg.watchlist))
+    ing = NewsIngestor(cfg, db, {"stocks": TickerExtractor(db, cfg.stock_watchlist)})
     assert ing(items) == 3
     assert ing(items) == 0  # ontdubbeld
     rows = {r["domain"]: r for r in db.query("SELECT * FROM news")}
@@ -62,14 +62,14 @@ def test_ingest_clusters_filters_and_extracts(cfg, db, fixture_text):
          "url": "https://c/2", "published_at": _now(2)},
     ]
     ing(other)
-    c1, c2 = (db.query_one("SELECT cluster_id FROM news WHERE id=?", (i,))["cluster_id"] for i in ("n1", "n2"))
+    c1, c2 = (db.query_one("SELECT cluster_id FROM news WHERE id=?", (i,))["cluster_id"] for i in ("stocks:n1", "stocks:n2"))
     assert c1 != c2
 
 
 def test_ticker_extraction_uses_trade_company_names(db, cfg):
     db.insert_trades([{"id": "t1", "source": "sec_form4", "actor_name": "X", "actor_type": "insider",
                        "ticker": "EXRO", "company": "EXAMPLE ROBOTICS CORP", "tx_type": "buy", "filed_at": _now()}])
-    ex = TickerExtractor(db, cfg.watchlist)
+    ex = TickerExtractor(db, cfg.stock_watchlist)
     assert ex.extract("Example Robotics shares jump") == ["EXRO"]
     assert ex.extract("Apple and $TSLA rally; (NASDAQ: SMPL) too") == ["TSLA", "SMPL", "AAPL"]
     assert ex.extract("THE CEO SAID IT") == []
@@ -161,8 +161,8 @@ def test_extractive_summary(cfg, db):
                        "actor_type": "politician", "ticker": "EXRO", "tx_type": "buy", "value_low": 50001,
                        "value_high": 100000, "value_usd": 75000, "filed_at": _now(10)}])
     s = Summarizer(cfg, db)
-    assert s.run() == 1
-    row = db.query_one("SELECT * FROM summaries")
+    assert s.run() == 2  # aandelen + crypto
+    row = db.query_one("SELECT * FROM summaries WHERE market='stocks'")
     c = json.loads(row["content"])
     assert row["method"] == "automatisch"
     assert c["headline"] == "Example Robotics jumps on record quarter"
@@ -200,11 +200,12 @@ def test_ai_summary_request_shape_and_side_effects(cfg, db, model, expect_beta):
     cfg.anthropic_model = model
     _seed_news(db, "Example Robotics jumps on record quarter", "reuters.com", 0.95, ["EXRO"])
     _seed_news(db, "Rumour: EXRO to be bought for 10x", "rumours.example", 0.5, ["EXRO"])
-    ing = NewsIngestor(cfg, db, TickerExtractor(db, cfg.watchlist))
+    ing = NewsIngestor(cfg, db, {"stocks": TickerExtractor(db, cfg.stock_watchlist)})
     s = Summarizer(cfg, db, ing)
     client, msgs = _fake_client(AI_RESULT)
     s._client = client
-    assert s.run() == 1
+    assert s.run() == 2
+    assert len(msgs.calls) == 2
     call = msgs.calls[0]
     assert call["model"] == model
     assert call["output_config"]["format"]["type"] == "json_schema"
@@ -213,11 +214,11 @@ def test_ai_summary_request_shape_and_side_effects(cfg, db, model, expect_beta):
     assert ("fallbacks" in call) == expect_beta
     if expect_beta:
         assert call["fallbacks"] == "default" and call["betas"] == ["server-side-fallback-2026-07-01"]
-    row = db.query_one("SELECT * FROM summaries")
+    row = db.query_one("SELECT * FROM summaries WHERE market='stocks'")
     c = json.loads(row["content"])
     assert row["method"] == "ai" and c["headline"] == "Robotica in trek" and "unreliable_items" not in c
     assert c["filtered_by_ai"] == 1
-    sent = db.query("SELECT * FROM ticker_sentiment")
+    sent = db.query("SELECT * FROM ticker_sentiment WHERE market='stocks'")
     assert [(r["ticker"], r["sentiment"]) for r in sent] == [("EXRO", 1.0)]
     junk = db.query("SELECT title, junk_reason FROM news WHERE is_junk=1")
     assert junk == [{"title": "Rumour: EXRO to be bought for 10x", "junk_reason": "AI: hype of gerucht"}]
@@ -229,4 +230,4 @@ def test_ai_failure_falls_back_to_extractive(cfg, db):
     client, _ = _fake_client(AI_RESULT, stop="refusal")
     s._client = client
     s.run()
-    assert db.query_one("SELECT method FROM summaries")["method"] == "automatisch"
+    assert {r["method"] for r in db.query("SELECT method FROM summaries")} == {"automatisch"}

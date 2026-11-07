@@ -22,7 +22,8 @@ def fixture_text():
 
 @pytest.fixture
 def cfg(tmp_path):
-    return Config(data_dir=str(tmp_path), watchlist=["EXRO", "SMPL"], sec_user_agent="Test test@example.com")
+    return Config(data_dir=str(tmp_path), stock_watchlist=["EXRO", "SMPL"], crypto_watchlist=["BTC", "ETH"],
+                  sec_user_agent="Test test@example.com")
 
 
 @pytest.fixture

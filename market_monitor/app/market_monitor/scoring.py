@@ -1,11 +1,15 @@
 """Koopscore (0-100), geschatte kans op stijging en instapmoment per aandeel.
 
 Belangrijk: dit is een onderbouwde inschatting, geen voorspelling of beleggingsadvies.
-De score combineert vier signalen:
+Aandelen combineren vier signalen:
   * insiders  (30%): open-markt aankopen door bestuurders, extra gewicht als meerdere tegelijk kopen
   * politici  (20%): aankopen door Congresleden (met straf voor late melding)
   * nieuws    (25%): sentiment van geloofwaardige berichten, gewogen naar bron en actualiteit
   * koers     (25%): trend (50-daags gemiddelde), momentum en RSI -> ook het instapmoment
+Crypto combineert drie signalen:
+  * instituties (25%): bedrijven die munten kopen (SEC 8-K) en politici/insiders die crypto-ETF's kopen
+  * nieuws      (35%)
+  * koers       (40%): crypto beweegt sterker op momentum
 De 'kans omhoog' (horizon ~1 maand) start als modelschatting en wordt automatisch
 gekalibreerd zodra er genoeg historie is (de app meet hoe vaak eerdere scores uitkwamen).
 """
@@ -19,11 +23,10 @@ from collections import defaultdict
 from datetime import timedelta
 
 from .db import Database, ago, iso, parse_iso, utcnow
+from .markets import crypto_proxies, excluded_coins
 
 log = logging.getLogger(__name__)
 
-WEIGHTS = {"insider": 0.30, "politician": 0.20, "news": 0.25, "momentum": 0.25}
-BASE_RATE = 0.53          # historisch: iets meer dan de helft van de maanden stijgt een aandeel
 PROB_SLOPE = 1.2
 PROB_MIN, PROB_MAX = 0.25, 0.80
 BUCKETS = [(0, 40), (40, 50), (50, 60), (60, 70), (70, 101)]
@@ -42,6 +45,27 @@ def fmt_usd(v: float | None) -> str:
     if v >= 1e3:
         return f"${v / 1e3:.0f}k"
     return f"${v:.0f}"
+
+
+def fmt_num(v: float | None, decimals: int = 0) -> str:
+    """Nederlandse notatie: 7.019 of 467,60."""
+    if v is None:
+        return "?"
+    s = f"{v:,.{decimals}f}"
+    return s.replace(",", "_").replace(".", ",").replace("_", ".")
+
+
+def fmt_pct(v: float | None) -> str:
+    return "?" if v is None else ("+" if v >= 0 else "-") + fmt_num(abs(v), 1) + "%"
+
+
+def fmt_price(v: float | None) -> str:
+    if v is None:
+        return "?"
+    if 0 < abs(v) < 1:
+        decimals = max(2, -math.floor(math.log10(abs(v))) + 3)  # bv. 0,00001820
+        return "$" + fmt_num(v, decimals)
+    return "$" + fmt_num(v, 2)
 
 
 def clamp(x: float, lo: float = -1.0, hi: float = 1.0) -> float:
@@ -205,36 +229,84 @@ def news_component(news: list[dict], llm: list[dict]) -> tuple[float, list[str]]
     return score, reasons
 
 
+# --------------------------------------------------------------------------- crypto-componenten
+def institutional_component(company: list[dict], proxy: list[dict]) -> tuple[float, list[str]]:
+    """Bedrijven die de munt kopen (8-K) + politici/insiders die crypto-ETF's of -aandelen kopen."""
+    reasons = []
+    buy_v = sum(t["value_usd"] or 0 for t in company if t["tx_type"] == "buy")
+    sell_v = sum(t["value_usd"] or 0 for t in company if t["tx_type"] == "sell")
+    buyers = sorted({t["actor_name"] for t in company if t["tx_type"] == "buy"})
+    raw = 0.5 * math.log10(1 + buy_v / 5e6) - 0.4 * math.log10(1 + sell_v / 5e6)
+    if buyers:
+        reasons.append(f"Bedrijven kochten voor {fmt_usd(buy_v)} in 30 dagen: {', '.join(buyers[:3])}")
+    if sell_v:
+        reasons.append(f"Bedrijven verkochten voor {fmt_usd(sell_v)}")
+    pb = [t for t in proxy if t["tx_type"] == "buy"]
+    ps = [t for t in proxy if t["tx_type"] == "sell"]
+    if pb or ps:
+        pv = sum(t["value_usd"] or 0 for t in pb)
+        sv = sum(t["value_usd"] or 0 for t in ps)
+        raw += 0.25 * math.log10(1 + pv / 50_000) - 0.15 * math.log10(1 + sv / 50_000)
+        if pb:
+            who = sorted({f"{t['actor_name']} ({t['ticker']})" for t in pb})[:3]
+            reasons.append(f"Politici/insiders kochten crypto-fondsen of -aandelen (~{fmt_usd(pv)}): {', '.join(who)}")
+        if ps:
+            reasons.append(f"Politici/insiders verkochten crypto-fondsen of -aandelen (~{fmt_usd(sv)})")
+    if not company and not proxy:
+        return 0.0, reasons
+    return clamp(math.tanh(raw)), reasons
+
+
 # --------------------------------------------------------------------------- engine
 class ScoringEngine:
+    """Koopscore voor aandelen. CryptoScoringEngine hieronder hergebruikt dezelfde opbouw."""
+
+    market = "stocks"
+    weights = {"insider": 0.30, "politician": 0.20, "news": 0.25, "momentum": 0.25}
+    signal_keys = ("insider", "politician", "news")
+    base_rate = 0.53      # historisch stijgt een aandeel in iets meer dan de helft van de maanden
+    period_word = "handelsdagen"
+
     def __init__(self, cfg, db: Database):
         self.cfg = cfg
         self.db = db
 
-    def candidate_tickers(self, limit: int = 60) -> list[str]:
-        out: list[str] = list(dict.fromkeys(self.cfg.watchlist))
-        rows = self.db.query(
-            "SELECT ticker, SUM(COALESCE(value_usd, 0)) v FROM trades WHERE tx_type='buy' AND ticker IS NOT NULL "
-            "AND filed_at >= ? GROUP BY ticker ORDER BY v DESC LIMIT 40",
-            (ago(days=30),),
-        )
-        out += [r["ticker"] for r in rows]
-        news_counts: dict[str, int] = defaultdict(int)
+    def watchlist(self) -> list[str]:
+        return list(self.cfg.watchlist(self.market))
+
+    # ------------------------------------------------------------------ kandidaten
+    def _news_counts(self) -> dict[str, int]:
+        counts: dict[str, int] = defaultdict(int)
         for r in self.db.query(
-            "SELECT tickers FROM news WHERE is_junk=0 AND published_at >= ? AND tickers != '[]'", (ago(hours=24),)
+            "SELECT tickers FROM news WHERE market=? AND is_junk=0 AND published_at >= ? AND tickers != '[]'",
+            (self.market, ago(hours=24)),
         ):
             for t in json.loads(r["tickers"]):
-                news_counts[t] += 1
-        out += [t for t, c in sorted(news_counts.items(), key=lambda x: -x[1]) if c >= 2][:20]
+                counts[t] += 1
+        return counts
+
+    @staticmethod
+    def _clean(tickers: list[str], limit: int, excluded: set[str] = frozenset()) -> list[str]:
         clean = []
-        for t in out:
+        for t in tickers:
             t = (t or "").upper().strip()
-            if t and t not in clean and len(t) <= 12:
+            if t and t not in clean and t not in excluded and len(t) <= 12:
                 clean.append(t)
         return clean[:limit]
 
+    def candidate_tickers(self, limit: int = 60) -> list[str]:
+        out = self.watchlist()
+        rows = self.db.query(
+            "SELECT ticker, SUM(COALESCE(value_usd, 0)) v FROM trades WHERE market='stocks' AND tx_type='buy'"
+            " AND ticker IS NOT NULL AND filed_at >= ? GROUP BY ticker ORDER BY v DESC LIMIT 40",
+            (ago(days=30),),
+        )
+        out += [r["ticker"] for r in rows]
+        out += [t for t, c in sorted(self._news_counts().items(), key=lambda x: -x[1]) if c >= 2][:20]
+        return self._clean(out, limit)
+
     def probability(self, score: float, calibration: dict | None) -> tuple[float, str]:
-        logit = math.log(BASE_RATE / (1 - BASE_RATE)) + PROB_SLOPE * (score - 50) / 50
+        logit = math.log(self.base_rate / (1 - self.base_rate)) + PROB_SLOPE * (score - 50) / 50
         p_model = 1 / (1 + math.exp(-logit))
         p_model = max(PROB_MIN, min(PROB_MAX, p_model))
         if calibration:
@@ -247,92 +319,111 @@ class ScoringEngine:
                         return round(p, 3), "gekalibreerd"
         return round(p_model, 3), "model"
 
-    def run(self) -> int:
-        tickers = self.candidate_tickers()
-        if not tickers:
-            return 0
-        since30 = ago(days=30)
+    # ------------------------------------------------------------------ context en componenten
+    def _news_and_llm(self) -> tuple[dict, dict]:
+        news_by: dict[str, list[dict]] = defaultdict(list)
+        for n in self.db.query(
+            "SELECT tickers, credibility, sentiment, published_at FROM news WHERE market=? AND is_junk=0"
+            " AND published_at >= ? AND tickers != '[]'",
+            (self.market, ago(hours=48)),
+        ):
+            for t in json.loads(n["tickers"]):
+                news_by[t].append(n)
+        llm_by: dict[str, list[dict]] = defaultdict(list)
+        for r in self.db.query(
+            "SELECT ticker, sentiment, reason FROM ticker_sentiment WHERE market=? AND created_at >= ?"
+            " ORDER BY created_at",
+            (self.market, ago(hours=6)),
+        ):
+            llm_by[r["ticker"]].append(r)
+        return news_by, llm_by
+
+    def load_context(self, tickers: list[str]) -> dict:
         ph = ",".join("?" * len(tickers))
         trades = self.db.query(
-            f"SELECT * FROM trades WHERE ticker IN ({ph}) AND filed_at >= ? AND tx_type IN ('buy','sell')",
+            f"SELECT * FROM trades WHERE market='stocks' AND ticker IN ({ph}) AND filed_at >= ?"
+            " AND tx_type IN ('buy','sell')",
             (*tickers, ago(days=60)),
         )
         by_t: dict[str, list[dict]] = defaultdict(list)
         for t in trades:
             by_t[t["ticker"]].append(t)
-        news_rows = self.db.query(
-            "SELECT tickers, credibility, sentiment, published_at FROM news WHERE is_junk=0 AND published_at >= ?"
-            " AND tickers != '[]'",
-            (ago(hours=48),),
-        )
-        news_by: dict[str, list[dict]] = defaultdict(list)
-        for n in news_rows:
-            for t in json.loads(n["tickers"]):
-                news_by[t].append(n)
-        llm_by: dict[str, list[dict]] = defaultdict(list)
-        for r in self.db.query(
-            "SELECT ticker, sentiment, reason FROM ticker_sentiment WHERE created_at >= ? ORDER BY created_at",
-            (ago(hours=6),),
-        ):
-            llm_by[r["ticker"]].append(r)
-        calibration = self.db.get_state("calibration")
+        news_by, llm_by = self._news_and_llm()
+        return {"trades": by_t, "news": news_by, "llm": llm_by, "since30": ago(days=30)}
+
+    def components(self, t: str, ctx: dict) -> tuple[dict, list[str]]:
+        ins_trades = [x for x in ctx["trades"][t] if x["actor_type"] == "insider" and (x["filed_at"] or "") >= ctx["since30"]]
+        pol_trades = [x for x in ctx["trades"][t] if x["actor_type"] == "politician"]
+        ins, r1 = insider_component(ins_trades)
+        pol, r2 = politician_component(pol_trades)
+        nws, r3 = news_component(ctx["news"].get(t, []), ctx["llm"].get(t, []))
+        return {"insider": ins, "politician": pol, "news": nws}, r1 + r2 + r3
+
+    def price_reasons(self, ind: dict, meta: dict | None) -> list[str]:
+        if not ind:
+            return []
+        trend = "boven" if ind.get("sma50") and ind["last"] > ind["sma50"] else "onder"
+        rsi_txt = f", RSI {ind['rsi']:.0f}" if ind.get("rsi") is not None else ""
+        return [f"Koers {trend} 50-daags gemiddelde, {fmt_pct(ind['ret20'] * 100)} in 20 {self.period_word}{rsi_txt}"]
+
+    # ------------------------------------------------------------------ berekenen
+    def run(self) -> int:
+        tickers = self.candidate_tickers()
+        if not tickers:
+            return 0
+        ctx = self.load_context(tickers)
+        calibration = self.db.get_state(f"calibration_{self.market}")
         now = iso(utcnow())
         today = now[:10]
-
+        watch = set(self.watchlist())
         results = 0
         for t in tickers:
-            ins_trades = [x for x in by_t[t] if x["actor_type"] == "insider" and (x["filed_at"] or "") >= since30]
-            pol_trades = [x for x in by_t[t] if x["actor_type"] == "politician"]
-            ins, r1 = insider_component(ins_trades)
-            pol, r2 = politician_component(pol_trades)
-            nws, r3 = news_component(news_by.get(t, []), llm_by.get(t, []))
+            comps, reasons = self.components(t, ctx)
             closes = [r["close"] for r in self.db.query(
-                "SELECT close FROM prices WHERE ticker=? ORDER BY date DESC LIMIT 130", (t,))][::-1]
+                "SELECT close FROM prices WHERE market=? AND ticker=? ORDER BY date DESC LIMIT 130",
+                (self.market, t))][::-1]
             ind = indicators(closes)
-            mom = momentum_component(ind)
+            comps["momentum"] = momentum_component(ind)
             timing, _ = timing_of(ind)
-            r4 = []
-            if ind:
-                trend = "boven" if ind.get("sma50") and ind["last"] > ind["sma50"] else "onder"
-                rsi_txt = f", RSI {ind['rsi']:.0f}" if ind.get("rsi") is not None else ""
-                r4.append(f"Koers {trend} 50-daags gemiddelde, {ind['ret20'] * 100:+.1f}% in 20 handelsdagen{rsi_txt}")
-            comps = {"insider": ins, "politician": pol, "news": nws, "momentum": mom}
-            total = sum(WEIGHTS[k] * v for k, v in comps.items())
+            meta = self.db.query_one("SELECT * FROM price_meta WHERE market=? AND ticker=?", (self.market, t))
+            reasons += self.price_reasons(ind, meta)
+            total = sum(w * comps.get(k, 0.0) for k, w in self.weights.items())
             score = round(50 + 50 * clamp(total), 1)
             prob, src = self.probability(score, calibration)
-            meta = self.db.query_one("SELECT last_price FROM price_meta WHERE ticker=?", (t,))
             price = (meta or {}).get("last_price") or (closes[-1] if closes else None)
-            has_signal = any(abs(v) > 0.01 for v in (ins, pol, nws)) or bool(ind)
-            if not has_signal and t not in self.cfg.watchlist:
+            has_signal = any(abs(comps.get(k, 0.0)) > 0.01 for k in self.signal_keys) or bool(ind)
+            if not has_signal and t not in watch:
                 continue
             self.db.execute(
-                "INSERT INTO scores_latest(ticker, computed_at, score, prob_up, prob_source, timing, price, components,"
-                " reasons) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(ticker) DO UPDATE SET computed_at=excluded.computed_at,"
-                " score=excluded.score, prob_up=excluded.prob_up, prob_source=excluded.prob_source,"
-                " timing=excluded.timing, price=excluded.price, components=excluded.components, reasons=excluded.reasons",
-                (t, now, score, prob, src, timing, price,
+                "INSERT INTO scores_latest(market, ticker, computed_at, score, prob_up, prob_source, timing, price,"
+                " components, reasons) VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(market, ticker) DO UPDATE SET"
+                " computed_at=excluded.computed_at, score=excluded.score, prob_up=excluded.prob_up,"
+                " prob_source=excluded.prob_source, timing=excluded.timing, price=excluded.price,"
+                " components=excluded.components, reasons=excluded.reasons",
+                (self.market, t, now, score, prob, src, timing, price,
                  json.dumps({k: round(v, 3) for k, v in comps.items()} | {"indicators": ind}),
-                 json.dumps(r1 + r2 + r3 + r4)),
+                 json.dumps(reasons)),
             )
             if price:
                 self.db.execute(
-                    "INSERT OR IGNORE INTO score_history(ticker, day, score, price) VALUES (?,?,?,?)",
-                    (t, today, score, price),
+                    "INSERT OR IGNORE INTO score_history(market, ticker, day, score, price) VALUES (?,?,?,?,?)",
+                    (self.market, t, today, score, price),
                 )
             results += 1
-        # Oude tickers zonder recente berekening opruimen
-        self.db.execute("DELETE FROM scores_latest WHERE computed_at < ?", (ago(days=2),))
+        self.db.execute("DELETE FROM scores_latest WHERE market=? AND computed_at < ?", (self.market, ago(days=2)))
         return results
 
     def calibrate(self) -> int:
-        """Meet hoe vaak eerdere scores uitkwamen (koers na ~20 handelsdagen hoger?)."""
+        """Meet hoe vaak eerdere scores uitkwamen (koers na ~20 koersdagen hoger?)."""
         cutoff = (utcnow() - timedelta(days=30)).strftime("%Y-%m-%d")
-        rows = self.db.query("SELECT ticker, day, score, price FROM score_history WHERE day <= ?", (cutoff,))
+        rows = self.db.query(
+            "SELECT ticker, day, score, price FROM score_history WHERE market=? AND day <= ?", (self.market, cutoff)
+        )
         stats = {f"{lo}-{hi}": {"n": 0, "up": 0} for lo, hi in BUCKETS}
         for r in rows:
             later = self.db.query_one(
-                "SELECT close FROM prices WHERE ticker=? AND date > ? ORDER BY date LIMIT 1 OFFSET 19",
-                (r["ticker"], r["day"]),
+                "SELECT close FROM prices WHERE market=? AND ticker=? AND date > ? ORDER BY date LIMIT 1 OFFSET 19",
+                (self.market, r["ticker"], r["day"]),
             )
             if not later or not r["price"]:
                 continue
@@ -341,5 +432,65 @@ class ScoringEngine:
                     b = stats[f"{lo}-{hi}"]
                     b["n"] += 1
                     b["up"] += 1 if later["close"] > r["price"] else 0
-        self.db.set_state("calibration", stats)
+        self.db.set_state(f"calibration_{self.market}", stats)
         return sum(b["n"] for b in stats.values())
+
+
+class CryptoScoringEngine(ScoringEngine):
+    market = "crypto"
+    weights = {"institutional": 0.25, "news": 0.35, "momentum": 0.40}
+    signal_keys = ("institutional", "news")
+    base_rate = 0.52
+    period_word = "dagen"
+
+    def candidate_tickers(self, limit: int = 40) -> list[str]:
+        excluded = excluded_coins()
+        out = self.watchlist()
+        rows = self.db.query(
+            "SELECT ticker, SUM(COALESCE(value_usd, 0)) v FROM trades WHERE market='crypto' AND actor_type='company'"
+            " AND ticker IS NOT NULL AND filed_at >= ? GROUP BY ticker ORDER BY v DESC LIMIT 10",
+            (ago(days=30),),
+        )
+        out += [r["ticker"] for r in rows]
+        known = set((self.db.get_state("coingecko_map") or {}).keys())
+        out += [t for t, c in sorted(self._news_counts().items(), key=lambda x: -x[1])
+                if c >= 2 and (not known or t in known)][:15]
+        return self._clean(out, limit, excluded)
+
+    def load_context(self, tickers: list[str]) -> dict:
+        ph = ",".join("?" * len(tickers))
+        company = self.db.query(
+            f"SELECT * FROM trades WHERE market='crypto' AND actor_type='company' AND ticker IN ({ph})"
+            " AND filed_at >= ?",
+            (*tickers, ago(days=30)),
+        )
+        by_t: dict[str, list[dict]] = defaultdict(list)
+        for t in company:
+            by_t[t["ticker"]].append(t)
+        proxies = {k: v for k, v in crypto_proxies().items() if v}
+        proxy_by: dict[str, list[dict]] = defaultdict(list)
+        if proxies:
+            pph = ",".join("?" * len(proxies))
+            for t in self.db.query(
+                f"SELECT * FROM trades WHERE market='stocks' AND ticker IN ({pph}) AND filed_at >= ?"
+                " AND tx_type IN ('buy','sell')",
+                (*proxies, ago(days=60)),
+            ):
+                proxy_by[proxies[t["ticker"]]].append(t)
+        news_by, llm_by = self._news_and_llm()
+        return {"company": by_t, "proxy": proxy_by, "news": news_by, "llm": llm_by}
+
+    def components(self, t: str, ctx: dict) -> tuple[dict, list[str]]:
+        inst, r1 = institutional_component(ctx["company"].get(t, []), ctx["proxy"].get(t, []))
+        nws, r2 = news_component(ctx["news"].get(t, []), ctx["llm"].get(t, []))
+        return {"institutional": inst, "news": nws}, r1 + r2
+
+    def price_reasons(self, ind: dict, meta: dict | None) -> list[str]:
+        out = super().price_reasons(ind, meta)
+        if meta and meta.get("chg_24h") is not None and meta.get("chg_7d") is not None:
+            out.append(f"{fmt_pct(meta['chg_24h'])} in 24 uur, {fmt_pct(meta['chg_7d'])} in 7 dagen")
+        return out
+
+
+def engine_for(market: str, cfg, db: Database) -> ScoringEngine:
+    return CryptoScoringEngine(cfg, db) if market == "crypto" else ScoringEngine(cfg, db)
