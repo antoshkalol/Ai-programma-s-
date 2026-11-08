@@ -70,6 +70,10 @@ Ongeveer 48 aanvragen per dag (elk uur één per markt). Ruwe schatting per maan
   daarnaast de meldingsinstellingen van de Home Assistant-app op je telefoon:
   - iPhone: stijl *Banners*;
   - Android: kanaal *Market Monitor* op *Pop-up op scherm*.
+- **Geen aandelen-aanbeveling of ✕ bij "Koersen":** Yahoo Finance weigert soms verzoeken. Maak een gratis
+  sleutel aan op twelvedata.com, vul die in bij `stock_price_api_key` en herstart de add-on. Op het tabblad
+  Aanbeveling staat welke koersbron wat terugstuurde.
+- **Nog geen samenvatting:** klik in het samenvattingspaneel op **Nu samenvatten**.
 - **"CoinGecko: limiet bereikt":** maak een gratis demo-sleutel aan op coingecko.com en vul `coingecko_api_key` in.
 - **Geen AI-samenvatting:** controleer de API-sleutel en het tegoed. Bij een fout valt de add-on automatisch terug
   op de automatische samenvatting.

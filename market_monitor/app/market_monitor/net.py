@@ -23,8 +23,10 @@ HOST_RATES = {
     "disclosures-clerk.house.gov": 2.0,
     "efdsearch.senate.gov": 1.0,
     "api.gdeltproject.org": 0.2,
-    "query1.finance.yahoo.com": 2.0,
-    "query2.finance.yahoo.com": 2.0,
+    "query1.finance.yahoo.com": 1.0,
+    "query2.finance.yahoo.com": 1.0,
+    "api.nasdaq.com": 1.0,
+    "api.twelvedata.com": 0.13,   # gratis: 8 per minuut
     "stooq.com": 1.0,
     "news.google.com": 1.0,
     "efts.sec.gov": 4.0,
@@ -55,12 +57,14 @@ class RateLimiter:
 _limiter = RateLimiter()
 
 
-def make_session(user_agent: str | None = None) -> requests.Session:
+def make_session(user_agent: str | None = None, retry_on_429: bool = True, total: int = 3) -> requests.Session:
+    """retry_on_429=False: bij 'te veel verzoeken' niet blijven proberen (koersbronnen hebben reserves)."""
     s = requests.Session()
+    statuses = (429, 500, 502, 503, 504) if retry_on_429 else (500, 502, 503, 504)
     retry = Retry(
-        total=3,
+        total=total,
         backoff_factor=1.5,
-        status_forcelist=(429, 500, 502, 503, 504),
+        status_forcelist=statuses,
         allowed_methods=("GET", "POST"),
         respect_retry_after_header=True,
     )

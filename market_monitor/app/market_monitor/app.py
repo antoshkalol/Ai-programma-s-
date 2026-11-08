@@ -87,7 +87,8 @@ class MarketMonitor:
                 self._add("stocks", Job("quiver", self._trade_job(QuiverSource(cfg, db, s)), 1 * HOUR,
                                         initial_delay=20))
             self._news_jobs("stocks")
-            prices = PriceSource(cfg, db, make_session(), self.scoring["stocks"].candidate_tickers)
+            prices = PriceSource(cfg, db, make_session(retry_on_429=False, total=1),
+                                 self.scoring["stocks"].candidate_tickers)
             self._add("stocks", Job("prices_stocks", prices.run, 15 * MIN, initial_delay=90))
             self._add("stocks", Job("scoring_stocks", self._scoring_job("stocks"), 15 * MIN, initial_delay=150))
         if cfg.enable_crypto:
@@ -104,7 +105,7 @@ class MarketMonitor:
             self._news_jobs("crypto")
             self._add("crypto", Job("scoring_crypto", self._scoring_job("crypto"), 15 * MIN, initial_delay=120))
         self._add("all", Job("summary", self._summary_job, cfg.summary_interval_minutes * MIN,
-                             initial_delay=5 * MIN, aligned=True))
+                             initial_delay=3 * MIN, aligned=True))
         if cfg.alerts_enabled:
             self._add("all", Job("alerts", self.alerts.run, 2 * MIN, initial_delay=4 * MIN))
         self._add("all", Job("calibration", self._calibrate, 24 * HOUR, initial_delay=10 * MIN))

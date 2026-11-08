@@ -284,8 +284,31 @@
   }
 
   // ------------------------------------------------------------------ summary
+  const autoSummarized = {};
+  async function summarizeNow(market) {
+    const btn = $("btn-summarize");
+    btn.disabled = true;
+    btn.textContent = "Bezig...";
+    try {
+      await fetch("api/summary/now?market=" + market, { method: "POST" });
+    } catch (e) { console.error(e); }
+    btn.disabled = false;
+    btn.textContent = "Nu samenvatten";
+  }
+  $("btn-summarize").addEventListener("click", async () => {
+    await summarizeNow(state.market);
+    state.summaryId = null;
+    loadSummaries().catch(console.error);
+  });
+
   async function loadSummaries() {
-    const rows = await api(q("summaries?limit=24"));
+    let rows = await api(q("summaries?limit=24"));
+    if (!rows.length && !autoSummarized[state.market]) {
+      // Nog geen samenvatting sinds de start: maak er direct een
+      autoSummarized[state.market] = true;
+      await summarizeNow(state.market);
+      rows = await api(q("summaries?limit=24"));
+    }
     state.summaries = rows;
     const sel = $("summary-select");
     const keep = state.summaryId;
@@ -316,6 +339,7 @@
       el("span", { text: s.method === "ai" ? "AI-samenvatting" + (c.model ? " (" + c.model + ")" : "") : "Automatische samenvatting" }));
     if (c.stats) meta.appendChild(el("span", { text: `${c.stats.news} berichten · ${c.stats.posts} posts · ${c.stats.filtered} gefilterd · ${c.stats.trades} transacties` }));
     wrap.appendChild(meta);
+    if (c.overview) wrap.appendChild(el("p", { class: "summary-overview", text: c.overview }));
 
     const section = (title, items) => {
       if (!items || !items.length) return;
@@ -608,8 +632,43 @@
     const body = el("div", { class: "panel-body" });
     card.appendChild(body);
     const rec = d.recommendation;
+    const brief = el("div", { class: "rec-brief" },
+      el("div", { class: "brief-head" }, el("span", { text: "In het kort" }),
+        d.overview_at ? el("span", { text: "samenvatting " + fmtTime(d.overview_at) }) : null));
+    if (d.overview) {
+      brief.appendChild(document.createTextNode(d.overview));
+    } else {
+      const now = el("button", { type: "button", class: "linkbtn", text: "Maak nu een samenvatting" });
+      now.addEventListener("click", async () => { now.disabled = true; await fetch("api/summary/now?market=" + market, { method: "POST" }); loadRecommendations(); });
+      brief.append("Nog geen samenvatting. ", now);
+    }
     if (!rec) {
-      body.appendChild(el("p", { class: "empty", text: "Nog geen aanbeveling: er is minstens 60 dagen koershistorie en een koopscore nodig. Dit verschijnt na de eerste rondes." }));
+      body.appendChild(brief);
+      const fb = d.fallback;
+      if (!fb) {
+        body.appendChild(el("p", { class: "empty", text: "Nog geen aanbeveling: de koopscores worden een paar minuten na de start berekend." }));
+        return;
+      }
+      const top = fb.top;
+      body.appendChild(el("div", { class: "rec-top" },
+        el("div", { class: "rec-asset" },
+          el("span", { class: "rec-ticker", text: top.ticker }),
+          el("span", { class: "rec-name", text: top.name || "" }),
+          top.price ? el("span", { class: "rec-price", text: fmtPrice(top.price, top.currency) }) : null),
+        el("div", { class: "dir-wrap" },
+          el("span", { class: "dir-badge score", text: "Koopscore " + nf0.format(top.score) }),
+          el("span", { class: "conv", text: "Kans omhoog ~" + Math.round((top.prob_up || 0) * 100) + "%" }))));
+      body.appendChild(el("div", { class: "rec-action", text: (market === "crypto" ? "Beste munt" : "Beste aandeel") + " volgens de koopscore" + (top.timing ? " · " + top.timing : "") }));
+      if (top.reasons && top.reasons.length) {
+        body.append(el("h3", { text: "Waarom" }), el("ul", { class: "plain" }, top.reasons.slice(0, 6).map((x) => el("li", { text: x }))));
+      }
+      const why = fb.price_days > 0
+        ? `Er zijn pas ${fb.price_days} dagen koersdata van ${top.ticker}; voor de technische analyse (grafiek, instap, stop, doelen) zijn er minstens 60 nodig.`
+        : `Er komen nog geen koersen binnen voor ${top.ticker}, dus de technische analyse (grafiek, instap, stop, doelen) kan nog niet.`;
+      const notice = el("div", { class: "rec-notice" }, why);
+      if (fb.price_error) notice.append(el("br"), "Laatste fout van de koersbron: " + fb.price_error.replace(/^\S+Z /, ""));
+      if (market === "stocks") notice.append(el("br"), "Tip: vul een gratis Twelve Data-sleutel in bij de optie stock_price_api_key voor betrouwbare aandelenkoersen.");
+      body.appendChild(notice);
       return;
     }
     const p = rec.plan, cur = rec.currency, price = p.price;
@@ -630,6 +689,7 @@
         el("span", { class: "dir-badge " + dir.cls, text: dir.text }),
         el("span", { class: "conv" }, "Overtuiging " + p.conviction + "%", convMeter))));
     body.appendChild(el("div", { class: "rec-action", text: p.action + (rec.since ? " · sinds " + fmtDate(rec.since, true) : "") }));
+    body.appendChild(brief);
 
     const grid = el("div", { class: "plan-grid" });
     if (p.direction !== "neutral") {

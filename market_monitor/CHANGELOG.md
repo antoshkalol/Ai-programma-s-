@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.4.0
+
+- **Samenvatting in gewone taal:** elke samenvatting begint met een alinea die uitlegt:
+  - wat er speelde in het nieuws;
+  - wat de grote kopers de afgelopen week deden;
+  - welk aandeel of welke munt er nu het best uitziet om te kopen, of dat afwachten verstandiger is.
+
+  Met en zonder AI-sleutel.
+- **Knop "Nu samenvatten":** maakt direct een samenvatting. Na de start wordt er automatisch meteen een gemaakt
+  (je hoeft niet meer op het hele uur te wachten).
+- **Aanbeveling-tabblad:**
+  - Een "In het kort"-blok met die samenvatting bovenaan elke kaart.
+  - Is de technische analyse (nog) niet mogelijk, dan staat er toch het beste aandeel volgens de koopscore, met
+    de redenen en de reden waarom er geen grafiek is.
+- **Aandelenkoersen robuuster:**
+  - Nasdaq als extra gratis bron naast Yahoo Finance en Stooq.
+  - Optioneel een gratis Twelve Data-sleutel (`stock_price_api_key`).
+  - Een bron die "te veel verzoeken" geeft, wordt 30 minuten overgeslagen.
+  - De status toont per bron wat er misging.
+
 ## 0.3.0
 
 - **Aanbeveling met technische analyse:** nieuw tabblad met per markt de beste kandidaat en de vraag of je moet

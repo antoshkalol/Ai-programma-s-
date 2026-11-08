@@ -53,6 +53,7 @@ class Config:
     enable_house: bool = True
     enable_senate: bool = True
     quiver_api_key: str = ""
+    stock_price_api_key: str = ""     # optioneel: gratis Twelve Data-sleutel voor betrouwbare koersen
     min_trade_value_usd: int = 100_000
     big_trade_alert_usd: int = 1_000_000
 
@@ -148,7 +149,8 @@ class Config:
     def public_dict(self) -> dict:
         """Configuratie zonder geheimen, voor het dashboard."""
         d = asdict(self)
-        for secret in ("anthropic_api_key", "quiver_api_key", "x_bearer_token", "coingecko_api_key"):
+        for secret in ("anthropic_api_key", "quiver_api_key", "x_bearer_token", "coingecko_api_key",
+                       "stock_price_api_key"):
             d[secret] = bool(d[secret])
         d["sec_user_agent"] = bool(self.sec_headers_ok)
         d["markets"] = self.markets
@@ -213,6 +215,7 @@ def load_config(data_dir: str = "/data", port: int = 8099) -> Config:
         "MM_QUIVER_API_KEY": "quiver_api_key",
         "MM_X_BEARER_TOKEN": "x_bearer_token",
         "MM_COINGECKO_API_KEY": "coingecko_api_key",
+        "MM_STOCK_PRICE_API_KEY": "stock_price_api_key",
     }
     for env, attr in env_map.items():
         if os.environ.get(env) and not getattr(cfg, attr):

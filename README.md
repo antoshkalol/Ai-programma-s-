@@ -19,7 +19,9 @@ met een duidelijke splitsing tussen de twee (tabbladen *Aandelen* en *Crypto*).
 - **Nieuws van het hele web** (betrouwbare media, Google News, GDELT en optioneel X), met een filter dat
   onbetrouwbare bronnen, clickbait en hype eruit haalt. Bij crypto worden ook presales en "next 100x"-promotie
   weggefilterd.
-- **Elk uur een samenvatting**, optioneel geschreven door Claude (AI), als pushbericht op je telefoon.
+- **Elk uur een samenvatting in gewone taal:** wat er speelde, wat de grote kopers deden en wat er nu het best
+  uitziet om te kopen. Optioneel geschreven door Claude (AI), ook als pushbericht. Met **Nu samenvatten** maak je
+  er direct een.
 - **Noodmeldingen:** als er iets groots aan lijkt te komen, krijg je meteen een alert, ook tussen de
   uurberichten door.
 - Een **kooplijst** met per aandeel of munt een score (0-100), een geschatte **kans op stijging** (~1 maand) en
@@ -182,6 +184,7 @@ De aanbeveling staat ook in het uurbericht op je telefoon en in de sensor
 | `quiet_hours` | Bijvoorbeeld `23-7`: dan geen uurbericht tussen 23:00 en 07:00 (noodmeldingen komen wel). Leeg = altijd. |
 | `alerts_enabled`, `alert_sensitivity`, `alert_critical`, `ai_check_alerts`, `max_alerts_per_day` | Instellingen van de noodmeldingen (zie hierboven). |
 | `anthropic_api_key` | Optioneel. Sleutel van [console.anthropic.com](https://console.anthropic.com) voor AI-samenvattingen en de AI-controle. Zonder sleutel krijg je een automatische samenvatting (gratis). |
+| `stock_price_api_key` | Optioneel: een gratis sleutel van [twelvedata.com](https://twelvedata.com) voor betrouwbare aandelenkoersen. Aanrader als de aandelen-aanbeveling of koersen ontbreken. |
 | `anthropic_model`, `anthropic_effort` | Het Claude-model en hoe grondig het nadenkt. Standaard `claude-opus-5-5` en `medium`. |
 | `summary_interval_minutes` | Hoe vaak de samenvatting komt; standaard 60. |
 
@@ -220,7 +223,7 @@ zetten.
 | Huis van Afgevaardigden (Clerk) | Aandelen | Transacties van Afgevaardigden (PDF-meldingen) | Tot 45 dagen | Gratis |
 | Senaat (eFD) | Aandelen | Transacties van Senatoren | Tot 45 dagen | Gratis (voorwaarden: niet commercieel) |
 | Quiver Quantitative | Aandelen | Congres-transacties incl. partij | Idem | Betaald, optioneel |
-| Yahoo Finance / Stooq | Aandelen | Dagkoersen | Ongeveer 15 minuten | Gratis (onofficieel) |
+| Twelve Data / Yahoo Finance / Nasdaq / Stooq | Aandelen | Dagkoersen, in die volgorde (Twelve Data alleen met gratis sleutel) | Ongeveer 15 minuten | Gratis |
 | SEC full-text search (8-K) | Crypto | Bedrijven die BTC/ETH/SOL kopen of verkopen voor hun balans | Dagen | Gratis |
 | blockchain.info | Crypto | Grote bitcoin-transfers uit nieuwe blokken | Ongeveer 10 minuten | Gratis |
 | CoinGecko | Crypto | Koers, 1u/24u/7d-verandering, volume en marktwaarde van de top 100, plus koershistorie | Minuten | Gratis (optioneel gratis demo-sleutel) |
@@ -342,8 +345,11 @@ content: |
   Het logboek van de add-on toont ook de fout.
 - **Gescande meldingen:** papieren (gescande) meldingen van politici zijn niet automatisch leesbaar. Ze
   verschijnen met een link naar de PDF.
-- **Gratis bronnen zonder garantie:** Yahoo Finance heeft geen officiële gratis API. CoinGecko heeft zonder sleutel
-  een lage limiet; met de gratis demo-sleutel gaat het ruimer.
+- **Gratis bronnen zonder garantie:**
+  - Yahoo Finance heeft geen officiële gratis API en weigert soms verzoeken; Nasdaq en Stooq zijn dan de reserve.
+    Komen er geen aandelenkoersen binnen (✕ bij "Koersen"), vul dan een gratis Twelve Data-sleutel in
+    (`stock_price_api_key`).
+  - CoinGecko heeft zonder sleutel een lage limiet; met de gratis demo-sleutel gaat het ruimer.
 - **Senaat:** de website van de Senaat staat alleen niet-commercieel gebruik van de data toe.
 
 ## Ideeën voor later

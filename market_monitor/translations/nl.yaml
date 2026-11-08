@@ -60,6 +60,11 @@ configuration:
     name: "Aandelen: Senaat (VS)"
   quiver_api_key:
     name: "Aandelen: Quiver Quantitative API-sleutel (optioneel, betaald)"
+  stock_price_api_key:
+    name: "Aandelen: Twelve Data API-sleutel voor koersen (optioneel, gratis)"
+    description: >-
+      Aanrader als aandelenkoersen of de aandelen-aanbeveling ontbreken. Gratis aan te maken op twelvedata.com.
+      Zonder sleutel gebruikt de add-on Yahoo Finance, Nasdaq en Stooq.
   min_trade_value_usd:
     name: Minimale transactiegrootte (USD)
     description: Transacties vanaf dit bedrag gelden als "groot" in de samenvatting.

@@ -15,7 +15,7 @@ from datetime import timedelta
 from .config import MARKET_LABELS
 from .db import Database, iso, utcnow
 from .markets import crypto_proxies
-from .scoring import fmt_num, fmt_usd
+from .scoring import fmt_num, fmt_price, fmt_usd
 
 log = logging.getLogger(__name__)
 
@@ -47,6 +47,9 @@ koerstrend en instapmoment, en noem het grootste risico. Geef nooit garanties en
 is geen beleggingsadvies.
 - key_points: 3 tot 7 punten van maximaal 30 woorden, belangrijkste eerst. Was er weinig nieuws, zeg dat dan gewoon.
 - headline: een zin die de periode samenvat.
+- overview: de samenvatting in gewone taal, 3 tot 5 zinnen voor iemand zonder beleggingskennis: wat er speelde in het \
+nieuws, wat de grote kopers deden (zie ook "grootste_aankopen_7_dagen") en welk aandeel (of welke munt) er nu het \
+best uitziet om te kopen en waarom - of dat afwachten verstandiger is. Noem de naam/ticker expliciet.
 - recommendation_comment: 2 tot 3 zinnen over "aanbeveling" (de technische analyse van het dashboard: long, short of \
 afwachten, met instap, stop en doelen). Zeg of het nieuws en de transacties de richting ondersteunen of juist \
 tegenspreken, en noem het grootste risico. Herhaal niet alle getallen. Schrijf "geen aanbeveling" als die ontbreekt."""
@@ -55,6 +58,7 @@ OUTPUT_SCHEMA = {
     "type": "object",
     "properties": {
         "headline": {"type": "string"},
+        "overview": {"type": "string"},
         "market_mood": {"type": "string", "enum": ["positief", "neutraal", "negatief", "gemengd"]},
         "key_points": {"type": "array", "items": {"type": "string"}},
         "notable_trades": {"type": "array", "items": {"type": "string"}},
@@ -77,7 +81,7 @@ OUTPUT_SCHEMA = {
         "recommendation_comment": {"type": "string"},
     },
     "required": [
-        "headline", "market_mood", "key_points", "notable_trades", "tickers", "watch_out", "unreliable_items",
+        "headline", "overview", "market_mood", "key_points", "notable_trades", "tickers", "watch_out", "unreliable_items",
         "buy_view", "recommendation_comment",
     ],
     "additionalProperties": False,
@@ -167,7 +171,15 @@ class Summarizer:
             s["reasons"] = json.loads(s["reasons"] or "[]")
         for n in news + posts:
             n["tickers"] = json.loads(n["tickers"] or "[]")
+        context = self.db.query(
+            f"SELECT ticker, COUNT(DISTINCT actor_name) n, SUM(COALESCE(value_usd, 0)) total,"
+            f" GROUP_CONCAT(DISTINCT actor_type) types FROM trades WHERE {where} AND tx_type='buy'"
+            f" AND actor_type != 'whale' AND ticker IS NOT NULL AND COALESCE(filed_at, created_at) >= ?"
+            f" GROUP BY ticker ORDER BY total DESC LIMIT 5",
+            (*args, iso(utcnow() - timedelta(days=7))),
+        )
         return {"news": news, "posts": posts, "filtered": filtered, "trades": big_trades or trades[:10],
+                "context": context,
                 "scores": scores, "recommendation": self.db.get_state(f"recommendation_{market}")}
 
     # ------------------------------------------------------------------ run
@@ -287,6 +299,10 @@ class Summarizer:
             "gefilterde_berichten": data["filtered"],
             "nieuwe_transacties": trades,
             "top_scores": scores,
+            "grootste_aankopen_7_dagen": [
+                {"ticker": c["ticker"], "aantal_kopers": c["n"], "totaal_usd": round(c["total"] or 0),
+                 "wie": c["types"]} for c in data.get("context", [])
+            ],
             "aanbeveling": recommendation_payload(data.get("recommendation")),
         }
         text = f"Schrijf de briefing over de {MARKET_LABELS[market].lower()}markt in het {lang}.\n\n" + json.dumps(
@@ -322,6 +338,10 @@ class Summarizer:
         result["filtered_by_ai"] = len(bad)
 
     # ------------------------------------------------------------------ zonder AI
+    @staticmethod
+    def extractive_overview(market: str, data: dict, mood: str, per_ticker: dict) -> str:
+        return build_overview(market, data, mood, per_ticker)
+
     def extractive_summary(self, market: str, data: dict) -> dict:
         news = data["news"]
         posts = data["posts"]
@@ -382,6 +402,7 @@ class Summarizer:
                 break
 
         headline = news[0]["title"] if news else "Rustige periode zonder groot nieuws"
+        overview = self.extractive_overview(market, data, mood, per_ticker)
         rec = data.get("recommendation")
         if rec:
             sig = "; ".join(s[0].lower() + s[1:] for s in rec.get("signals", [])[:2])
@@ -392,6 +413,7 @@ class Summarizer:
         return {
             "recommendation_comment": comment,
             "headline": headline,
+            "overview": overview,
             "market_mood": mood,
             "key_points": key_points,
             "notable_trades": trades,
@@ -399,6 +421,56 @@ class Summarizer:
             "watch_out": watch,
             "buy_view": buy_view,
         }
+
+
+def _mood_word(v: float) -> str:
+    return "positief" if v > 0.15 else "negatief" if v < -0.15 else "neutraal"
+
+
+def _who(types: str | None, n: int) -> str:
+    kinds = set((types or "").split(","))
+    names = {"insider": "insider", "politician": "politicus", "company": "bedrijf"}
+    plural = {"insider": "insiders", "politician": "politici", "company": "bedrijven"}
+    parts = [f"{n} {plural[k] if n > 1 else names[k]}" if len(kinds) == 1 else names[k] for k in names if k in kinds]
+    return " + ".join(parts) if parts else f"{n} kopers"
+
+
+def build_overview(market: str, data: dict, mood: str, per_ticker: dict) -> str:
+    """Samenvatting in gewone taal (zonder AI), altijd met het beste aandeel/de beste munt om te kopen."""
+    word = "munt" if market == "crypto" else "aandeel"
+    news = data["news"]
+    sentences = []
+    if news:
+        filt = f", {data['filtered']} weggefilterd als onbetrouwbaar" if data.get("filtered") else ""
+        sentences.append(f"De afgelopen periode kwamen er {len(news)} betrouwbare nieuwsberichten binnen{filt}; "
+                         f"de stemming is {mood}.")
+    else:
+        sentences.append("De afgelopen periode was er weinig nieuw nieuws.")
+    topics = sorted(per_ticker.items(), key=lambda x: -len(x[1]))[:3]
+    if topics:
+        sentences.append("Het nieuws ging vooral over " + ", ".join(
+            f"{t} ({_mood_word(sum(v) / len(v))})" for t, v in topics) + ".")
+    ctx = data.get("context") or []
+    if ctx:
+        sentences.append("Grootste aankopen van de afgelopen week: " + ", ".join(
+            f"{c['ticker']} ({_who(c['types'], c['n'])}, {fmt_usd(c['total'])})" for c in ctx[:3]) + ".")
+    top = [s for s in data["scores"] if s["score"] >= 55]
+    if top:
+        b = top[0]
+        why = (b.get("reasons") or [""])[0]
+        why = f" {why[0].upper() + why[1:]}." if why else ""
+        sentences.append(f"Beste {word} om nu te kopen volgens het model: {b['ticker']} (koopscore {b['score']:.0f}, "
+                         f"kans op stijging ~{(b['prob_up'] or 0) * 100:.0f}%, {(b['timing'] or '').lower()}).{why}")
+    else:
+        sentences.append(f"Er is nu geen {word} met een duidelijk koopsignaal; afwachten lijkt verstandig.")
+    rec = data.get("recommendation")
+    if rec and rec.get("direction") == "long":
+        sentences.append(f"De technische analyse geeft LONG {rec['ticker']}: instap {fmt_price(rec['entry_low'])}-"
+                         f"{fmt_price(rec['entry_high'])}, doel {fmt_price(rec['target1'])}, stop {fmt_price(rec['stop'])}.")
+    elif rec and rec.get("direction") == "short":
+        sentences.append(f"Technisch ziet het model vooral een short-kans in {rec['ticker']} (inzetten op daling, "
+                         f"doel {fmt_price(rec['target1'])}, stop {fmt_price(rec['stop'])}).")
+    return " ".join(sentences)
 
 
 def latest_summary(db: Database, market: str) -> dict | None:

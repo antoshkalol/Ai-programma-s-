@@ -6,7 +6,7 @@ Alle data-endpoints nemen ?market=stocks of ?market=crypto.
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from flask import Flask, abort, jsonify, request, send_from_directory
@@ -238,9 +238,34 @@ def create_app(monitor) -> Flask:
         s = latest_summary(db, market)
         if s and rec:
             comment = s["content"].get("recommendation_comment")
+        fallback = None
+        if rec is None:
+            # Geen technische analyse mogelijk: toon dan het beste kandidaat volgens de koopscore
+            top = db.query_one("SELECT s.*, m.name, m.currency, m.chg_24h FROM scores_latest s LEFT JOIN price_meta m"
+                               " ON m.market=s.market AND m.ticker=s.ticker WHERE s.market=? ORDER BY s.score DESC"
+                               " LIMIT 1", (market,))
+            if top:
+                top["reasons"] = json.loads(top["reasons"] or "[]")
+                job = db.query_one("SELECT last_error FROM job_status WHERE name=?",
+                                   ("prices_stocks" if market == "stocks" else "crypto_history",))
+                n = db.query_one("SELECT COUNT(*) n FROM prices WHERE market=? AND ticker=?",
+                                 (market, top["ticker"]))["n"]
+                fallback = {"top": top, "price_days": n, "price_error": (job or {}).get("last_error"),
+                            "price_sources": db.get_state("price_sources") if market == "stocks" else None}
         return jsonify({"market": market, "label": MARKET_LABELS[market], "recommendation": rec,
-                        "ai_comment": comment, "comment_method": s["method"] if s else None,
+                        "fallback": fallback, "ai_comment": comment, "comment_method": s["method"] if s else None,
+                        "overview": s["content"].get("overview") if s else None,
+                        "overview_at": s["created_at"] if s else None,
                         "history": monitor.recommender.history(market)})
+
+    @app.post("/api/summary/now")
+    def summary_now():
+        """Maakt direct een samenvatting van het afgelopen uur voor één markt (zonder pushbericht)."""
+        market = _market()
+        end = utcnow()
+        start = end - timedelta(minutes=cfg.summary_interval_minutes)
+        content = monitor.summarizer.run_market(market, iso(start), iso(end))
+        return jsonify({"ok": True, "market": market, "content": content})
 
     @app.post("/api/notify/test")
     def notify_test():

@@ -46,6 +46,8 @@ configuration:
     name: "Stocks: US Senate"
   quiver_api_key:
     name: "Stocks: Quiver Quantitative API key (optional, paid)"
+  stock_price_api_key:
+    name: "Stocks: Twelve Data API key for prices (optional, free)"
   min_trade_value_usd:
     name: Minimum trade size (USD)
   big_trade_alert_usd:

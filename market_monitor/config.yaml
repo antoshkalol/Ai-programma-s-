@@ -1,5 +1,5 @@
 name: Market Monitor
-version: "0.3.0"
+version: "0.4.0"
 slug: market_monitor
 description: >-
   Volgt grote transacties op de aandelen- en cryptomarkt (politici, insiders, bedrijven, walvissen),
@@ -70,6 +70,7 @@ options:
   enable_house: true
   enable_senate: true
   quiver_api_key: ""
+  stock_price_api_key: ""
   min_trade_value_usd: 100000
   big_trade_alert_usd: 1000000
   enable_crypto: true
@@ -142,6 +143,7 @@ schema:
   enable_house: bool
   enable_senate: bool
   quiver_api_key: password?
+  stock_price_api_key: password?
   min_trade_value_usd: int(0,)
   big_trade_alert_usd: int(0,)
   enable_crypto: bool
