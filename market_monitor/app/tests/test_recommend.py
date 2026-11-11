@@ -118,7 +118,9 @@ def test_recommender_picks_strongest_and_tracks_history(cfg, db):
     _seed(db, "crypto", "BBB", -0.005, 22, seed=2)
     _seed(db, "crypto", "CCC", 0.0, 52, seed=3)
     rec = Recommender(cfg, db)
-    pick = rec.update("crypto")
+    res = rec.update("crypto")
+    assert res["changed"] and res["event"] is None  # eerste aanbeveling: geen popup
+    pick = res["pick"]
     assert pick["ticker"] in ("AAA", "BBB") and pick["plan"]["direction"] in ("long", "short")
     state = db.get_state("recommendation_crypto")
     assert state["ticker"] == pick["ticker"] and state["since"] == state["updated_at"]

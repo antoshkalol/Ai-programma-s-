@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.5.0
+
+- **Aanbeveling blijft actueel:**
+  - Elke 3 minuten wordt de aanbeveling tegen de actuele koers gehouden, met een live status: in de instapzone,
+    niet najagen, doel 1 gehaald, doel 2 gehaald of stop-loss geraakt.
+  - Het plan wijzigt direct als het nodig is: stop-loss of doel 2 geraakt, de richting slaat om, of een andere
+    kandidaat is duidelijk sterker (30% beter, na minimaal een uur).
+  - Bij doel 1 gaat de stop naar de instapprijs.
+  - Na 24 uur buiten de instapzone worden instap, stop en doelen bijgewerkt naar de huidige koers.
+  - Na een geraakte stop wordt dezelfde kant van dat aandeel of die munt 24 uur niet opnieuw aanbevolen.
+  - Popup op je telefoon bij elke echte wijziging (`notify_recommendation_changes`).
+  - Eerdere aanbevelingen tonen hun uitkomst ("stop geraakt", "doel 2 gehaald", ...).
+  - Na een wijziging wordt de samenvatting ververst; AI-commentaar verschijnt alleen als het bij het huidige plan
+    hoort.
+- **Aandelenkoersen binnen de gratis limieten:**
+  - Tijdens beurstijd (New York) worden volglijst, aanbevolen aandeel en sterkste kandidaten elk kwartier
+    ververst, de rest elk uur; daarbuiten één keer na het slot.
+  - Twelve Data heeft een dagbudget van 750 verzoeken. Voorheen kon de gratis limiet na een paar uur op zijn,
+    waarna koersen en aanbeveling bleven hangen.
+- **Grafieken op de telefoon:**
+  - Getekend op de echte schermbreedte, met een hogere en compactere telefoonversie en leesbare tekst.
+  - Labels staan in de goede volgorde, met verbindingslijntjes als ze moeten uitwijken.
+  - De aanbevelingskaart overlapt de rest van de pagina niet meer.
+  - Bij het draaien van je telefoon worden de grafieken opnieuw getekend.
+
 ## 0.4.0
 
 - **Samenvatting in gewone taal:** elke samenvatting begint met een alinea die uitlegt:

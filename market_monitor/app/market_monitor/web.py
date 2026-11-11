@@ -237,7 +237,9 @@ def create_app(monitor) -> Flask:
         comment = None
         s = latest_summary(db, market)
         if s and rec:
-            comment = s["content"].get("recommendation_comment")
+            ref = s["content"].get("recommendation_ref") or {}
+            if ref.get("ticker") == rec["ticker"] and ref.get("since") == rec.get("since"):
+                comment = s["content"].get("recommendation_comment")
         fallback = None
         if rec is None:
             # Geen technische analyse mogelijk: toon dan het beste kandidaat volgens de koopscore

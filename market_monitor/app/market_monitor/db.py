@@ -197,6 +197,13 @@ CREATE TABLE IF NOT EXISTS job_status (
 """
 
 
+MIGRATIONS = [
+    ("recommendations", "closed_at", "TEXT"),
+    ("recommendations", "outcome", "TEXT"),
+    ("recommendations", "close_price", "REAL"),
+]
+
+
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -242,6 +249,11 @@ class Database:
                 for t in tables:
                     self.conn.execute(f'DROP TABLE IF EXISTS "{t}"')
             self.conn.executescript(SCHEMA)
+            # Kolommen die in latere versies zijn toegevoegd (bestaande databases blijven werken)
+            for table, col, typ in MIGRATIONS:
+                cols = {r[1] for r in self.conn.execute(f"PRAGMA table_info({table})")}
+                if col not in cols:
+                    self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
             self.conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
             self.conn.commit()
 

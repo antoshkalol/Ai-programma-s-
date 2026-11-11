@@ -9,6 +9,8 @@ configuration:
     name: "Notifications: hourly summary as popup"
   quiet_hours:
     name: "Notifications: quiet hours for the hourly summary (e.g. 23-7)"
+  notify_recommendation_changes:
+    name: "Notifications: popup when the recommendation changes"
   alerts_enabled:
     name: "Notifications: emergency alerts on"
   alert_sensitivity:

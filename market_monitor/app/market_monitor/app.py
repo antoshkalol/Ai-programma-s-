@@ -6,7 +6,9 @@ import logging
 
 from .alerts import AlertEngine
 from .config import Config
-from .db import Database, ago, iso, utcnow
+from datetime import timedelta
+
+from .db import Database, ago, iso, parse_iso, utcnow
 from .filtering import NewsIngestor
 from .hass import HomeAssistant
 from .net import make_session
@@ -88,7 +90,7 @@ class MarketMonitor:
                                         initial_delay=20))
             self._news_jobs("stocks")
             prices = PriceSource(cfg, db, make_session(retry_on_429=False, total=1),
-                                 self.scoring["stocks"].candidate_tickers)
+                                 self.scoring["stocks"].candidate_tickers, self._price_priority)
             self._add("stocks", Job("prices_stocks", prices.run, 15 * MIN, initial_delay=90))
             self._add("stocks", Job("scoring_stocks", self._scoring_job("stocks"), 15 * MIN, initial_delay=150))
         if cfg.enable_crypto:
@@ -106,10 +108,23 @@ class MarketMonitor:
             self._add("crypto", Job("scoring_crypto", self._scoring_job("crypto"), 15 * MIN, initial_delay=120))
         self._add("all", Job("summary", self._summary_job, cfg.summary_interval_minutes * MIN,
                              initial_delay=3 * MIN, aligned=True))
+        # Aanbeveling elke 3 minuten tegen de actuele koers houden (wijzigt alleen als het nodig is)
+        self._add("all", Job("recommend", self._recommend_job, 3 * MIN, initial_delay=160))
         if cfg.alerts_enabled:
             self._add("all", Job("alerts", self.alerts.run, 2 * MIN, initial_delay=4 * MIN))
         self._add("all", Job("calibration", self._calibrate, 24 * HOUR, initial_delay=10 * MIN))
         self._add("all", Job("cleanup", self.cleanup, 24 * HOUR, initial_delay=1 * HOUR))
+
+    def _price_priority(self) -> list[str]:
+        """Volglijst + aanbevolen aandeel + 5 sterkste kandidaten: tijdens beurstijd elk kwartier vers."""
+        out = list(self.cfg.stock_watchlist)
+        rec = self.db.get_state("recommendation_stocks") or {}
+        if rec.get("ticker"):
+            out.insert(0, rec["ticker"])
+        rows = self.db.query("SELECT ticker, score FROM scores_latest WHERE market='stocks'")
+        rows.sort(key=lambda r: -abs(r["score"] - 50))
+        out += [r["ticker"] for r in rows[:5]]
+        return list(dict.fromkeys(out))
 
     def _trade_job(self, source):
         def run() -> int:
@@ -130,17 +145,42 @@ class MarketMonitor:
         def run() -> int:
             n = self.scoring[market].run()
             self.hass.publish_scores(market)
-            try:
-                self.recommender.update(market)
-                self.hass.publish_recommendation(market)
-            except Exception as exc:  # noqa: BLE001 - aanbeveling mag de scores niet blokkeren
-                log.error("Aanbeveling %s mislukt: %s", market, exc)
             jobs = self.db.query("SELECT name, last_ok, last_error FROM job_status")
             failing = [j["name"] for j in jobs if j["last_error"]]
             self.hass.publish_status(not failing, {"bronnen_met_fouten": failing, "bijgewerkt": iso(utcnow())})
             return n
 
         return run
+
+    def _recommend_job(self) -> int:
+        n = 0
+        for market in self.cfg.markets:
+            try:
+                res = self.recommender.update(market)
+            except Exception as exc:  # noqa: BLE001 - één markt mag de andere niet blokkeren
+                log.error("Aanbeveling %s mislukt: %s", market, exc)
+                continue
+            if not res:
+                continue
+            n += 1
+            self.hass.publish_recommendation(market)
+            if res.get("event"):
+                self.hass.notify_recommendation(market, res)
+                self._refresh_summary(market)
+        return n
+
+    def _refresh_summary(self, market: str) -> None:
+        """Na een wijziging van de aanbeveling de samenvatting verversen (max. 1x per 30 min per markt)."""
+        key = f"summary_refresh_{market}"
+        last = parse_iso(self.db.get_state(key))
+        now = utcnow()
+        if last and now - last < timedelta(minutes=30):
+            return
+        self.db.set_state(key, iso(now))
+        try:
+            self.summarizer.run_market(market, iso(now - timedelta(minutes=self.cfg.summary_interval_minutes)), iso(now))
+        except Exception as exc:  # noqa: BLE001
+            log.error("Samenvatting verversen (%s) mislukt: %s", market, exc)
 
     def _summary_job(self) -> int:
         n = self.summarizer.run()

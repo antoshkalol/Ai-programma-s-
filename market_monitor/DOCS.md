@@ -40,6 +40,13 @@ Het tabblad **Aanbeveling** toont per markt de beste kandidaat:
 - **Grafiek:** met technische analyse (trend, steun/weerstand, Bollinger, RSI) en de verwachte bandbreedte voor
   de komende ~20 dagen.
 
+Het plan wordt elke 3 minuten gecontroleerd en past zich aan als het nodig is:
+- bij doel 1 gaat de stop naar de instapprijs;
+- bij stop-loss of doel 2 komt er een nieuwe aanbeveling;
+- als de richting omslaat of een andere kandidaat duidelijk sterker wordt, komt er een nieuw plan.
+
+Je krijgt dan een popup (uitzetten met `notify_recommendation_changes: false`).
+
 Shorten is riskant; gebruik altijd een stop-loss.
 
 ## Kosten van de AI

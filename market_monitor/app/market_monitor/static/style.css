@@ -398,7 +398,7 @@ table.mini td, table.mini th { padding: 4px 6px; border-bottom: 1px solid var(--
 @media (min-width: 1300px) { .rec-view { grid-template-columns: 1fr 1fr; } }
 .rec-card[data-rec-market="stocks"] { --mk: var(--series-1); }
 .rec-card[data-rec-market="crypto"] { --mk: var(--series-2); }
-.rec-card .panel-body { overflow: visible; }
+.rec-card .panel-body { overflow: visible; max-height: none; }
 .rec-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 0 12px; }
 .rec-asset { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .rec-ticker { font-size: 28px; font-weight: 750; letter-spacing: -0.01em; }
@@ -465,3 +465,21 @@ main[hidden], .rec-view[hidden] { display: none !important; }
 .rec-brief .brief-head { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); font-weight: 600; margin-bottom: 4px; display: flex; justify-content: space-between; gap: 8px; }
 .rec-notice { border: 1px dashed var(--border); border-radius: 10px; padding: 10px 12px; color: var(--text-2); font-size: 13px; margin: 10px 0; }
 .dir-badge.score { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); font-size: 15px; }
+/* Grafieken: getekend op de echte breedte; expliciete afmetingen voorkomen overlap in telefoon-browsers */
+.ta-chart, .chart-wrap { width: 100%; min-width: 0; overflow: hidden; }
+.ta-chart svg, .chart-wrap svg { display: block; width: 100%; max-width: 100%; height: auto; }
+@media (max-width: 640px) {
+  .rec-card .panel-body { padding-left: 10px; padding-right: 10px; }
+  .ta-legend { gap: 4px 10px; font-size: 11.5px; }
+  .rec-asset { gap: 6px 10px; }
+  .dir-wrap { width: 100%; justify-content: space-between; }
+  .rec-brief { font-size: 13.5px; }
+}
+.rec-status { display: flex; align-items: center; gap: 8px; font-weight: 600; margin: 0 0 6px; }
+.rec-status .ico { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; font-size: 12px; font-weight: 800; color: #ffffff; flex: none; }
+.rec-status.good .ico { background: var(--good); }
+.rec-status.bad .ico { background: var(--critical); }
+.rec-status.warn .ico { background: var(--warning); color: #0b0b0b; }
+.rec-status.neutral .ico { background: var(--muted); }
+.rec-change { font-size: 13px; color: var(--text); background: color-mix(in srgb, var(--warning) 14%, var(--surface)); border-radius: 8px; padding: 6px 10px; margin: 2px 0 8px; }
+.brief-stale { margin-top: 6px; font-size: 12px; color: var(--text-2); font-style: italic; }

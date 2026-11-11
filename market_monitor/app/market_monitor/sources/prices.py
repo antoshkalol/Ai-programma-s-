@@ -7,6 +7,11 @@ Volgorde per aandeel:
   4. Stooq         (geen sleutel)
 Geeft een bron 'te veel verzoeken' (429) of 'geweigerd' (401/403), dan wordt die bron 30 minuten
 overgeslagen. Lukt geen enkele bron, dan staat in de status welke bron wat terugstuurde.
+
+Hoe vaak (om binnen gratis limieten te blijven):
+  * tijdens beurstijd in New York: volglijst, aanbevolen aandeel en sterkste kandidaten elk kwartier, rest elk uur
+  * buiten beurstijd: één keer na het slot (de koers verandert dan niet)
+  * Twelve Data: maximaal 750 verzoeken per dag (gratis limiet is 800)
 """
 
 from __future__ import annotations
@@ -16,10 +21,11 @@ import io
 import logging
 import time
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import requests
 
-from ..db import Database, iso, utcnow
+from ..db import Database, iso, parse_iso, utcnow
 from ..net import fetch
 
 log = logging.getLogger(__name__)
@@ -41,6 +47,35 @@ BROWSER_HEADERS = {
 NON_US = (".AS", ".DE", ".PA", ".L", ".KS", ".BR", ".MI", ".SW")
 BLOCK_SECONDS = 30 * 60
 MAX_TICKERS = 40
+TD_DAILY_BUDGET = 750
+
+
+def _ny_tz():
+    try:
+        return ZoneInfo("America/New_York")
+    except Exception:  # noqa: BLE001 - zonder tijdzonedata: benadering (EST)
+        return timezone(timedelta(hours=-5))
+
+
+def us_market_open(now: datetime) -> bool:
+    """Ma-vr 9:30-16:15 New Yorkse tijd (inclusief een kwartier na het slot voor de slotkoers)."""
+    t = now.astimezone(_ny_tz())
+    if t.weekday() >= 5:
+        return False
+    minutes = t.hour * 60 + t.minute
+    return 9 * 60 + 30 <= minutes <= 16 * 60 + 15
+
+
+def last_close(now: datetime) -> datetime:
+    """Tijdstip (UTC) van het laatste beursslot (16:15 New York op een werkdag)."""
+    tz = _ny_tz()
+    t = now.astimezone(tz)
+    d = t.date()
+    while True:
+        close = datetime(d.year, d.month, d.day, 16, 15, tzinfo=tz)
+        if close.weekday() < 5 and close <= t:
+            return close.astimezone(timezone.utc)
+        d -= timedelta(days=1)
 
 
 # --------------------------------------------------------------------------- parsers
@@ -138,11 +173,12 @@ class Blocked(Exception):
 class PriceSource:
     name = "prices"
 
-    def __init__(self, cfg, db: Database, session: requests.Session, tickers_func):
+    def __init__(self, cfg, db: Database, session: requests.Session, tickers_func, priority_func=None):
         self.cfg = cfg
         self.db = db
         self.session = session
-        self.tickers_func = tickers_func  # geeft de lijst tickers om bij te werken (volglijst eerst)
+        self.tickers_func = tickers_func      # geeft de lijst tickers om bij te werken (volglijst eerst)
+        self.priority_func = priority_func    # tickers die tijdens beurstijd elk kwartier ververst worden
         self.blocked_until: dict[str, float] = {}
         self.last_errors: dict[str, str] = {}
         self._yahoo_host = 0
@@ -157,9 +193,20 @@ class PriceSource:
             raise requests.HTTPError(f"HTTP {resp.status_code}")
         return resp
 
+    def _td_budget(self) -> dict:
+        today = utcnow().strftime("%Y-%m-%d")
+        b = self.db.get_state("td_budget") or {}
+        return b if b.get("date") == today else {"date": today, "used": 0}
+
     def _twelve(self, ticker: str) -> dict | None:
         if not self.cfg.stock_price_api_key or ticker.endswith(NON_US):
             return None
+        budget = self._td_budget()
+        if budget["used"] >= TD_DAILY_BUDGET:
+            self.last_errors["twelvedata"] = f"dagbudget van {TD_DAILY_BUDGET} verzoeken op"
+            return None
+        budget["used"] += 1
+        self.db.set_state("td_budget", budget)
         resp = self._get("twelvedata", TWELVE.format(sym=ticker.replace("-", "."), key=self.cfg.stock_price_api_key),
                          headers={"Accept": "application/json"})
         data = resp.json()
@@ -241,17 +288,35 @@ class PriceSource:
              iso(utcnow())),
         )
 
+    @staticmethod
+    def due(last: datetime | None, priority: bool, now: datetime) -> bool:
+        if last is None or now - last > timedelta(hours=24):
+            return True
+        if us_market_open(now):
+            return now - last >= (timedelta(minutes=14) if priority else timedelta(minutes=59))
+        return last < last_close(now)
+
     def run(self) -> int:
         self.last_errors = {}
         count, used = 0, {}
-        tickers = self.tickers_func()[:MAX_TICKERS]
-        for ticker in tickers:
+        priority = list(self.priority_func()) if self.priority_func else []
+        tickers = list(dict.fromkeys(priority + list(self.tickers_func())))[:MAX_TICKERS]
+        prio = set(priority) if priority else set(tickers[:10])
+        fetched = self.db.get_state("price_fetched") or {}
+        now = utcnow()
+        todo = [t for t in tickers if self.due(parse_iso(fetched.get(t)), t in prio, now)]
+        for ticker in todo:
             parsed = self.fetch_one(ticker)
             if parsed:
                 self.store(ticker, parsed)
+                fetched[ticker] = iso(now)
                 count += 1
                 used[parsed["provider"]] = used.get(parsed["provider"], 0) + 1
-        self.db.set_state("price_sources", {"used": used, "errors": self.last_errors, "at": iso(utcnow())})
+        self.db.set_state("price_fetched", {t: v for t, v in fetched.items() if t in tickers})
+        self.db.set_state("price_sources", {"used": used, "errors": self.last_errors, "at": iso(utcnow()),
+                                            "skipped_up_to_date": len(tickers) - len(todo),
+                                            "market_open": us_market_open(now)})
+        tickers = todo
         if tickers and count == 0:
             details = "; ".join(f"{k}: {v}" for k, v in self.last_errors.items()) or "geen antwoord"
             raise RuntimeError(f"Geen aandelenkoersen opgehaald ({details})")

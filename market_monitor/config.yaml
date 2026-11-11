@@ -1,5 +1,5 @@
 name: Market Monitor
-version: "0.4.0"
+version: "0.5.0"
 slug: market_monitor
 description: >-
   Volgt grote transacties op de aandelen- en cryptomarkt (politici, insiders, bedrijven, walvissen),
@@ -27,6 +27,7 @@ options:
   notify_service: ""
   notify_summaries: true
   quiet_hours: ""
+  notify_recommendation_changes: true
   alerts_enabled: true
   alert_sensitivity: normaal
   alert_critical: true
@@ -122,6 +123,7 @@ schema:
   notify_service: str?
   notify_summaries: bool
   quiet_hours: match(^(\d{1,2}-\d{1,2})?$)?
+  notify_recommendation_changes: bool
   alerts_enabled: bool
   alert_sensitivity: list(laag|normaal|hoog)
   alert_critical: bool

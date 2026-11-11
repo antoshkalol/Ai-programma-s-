@@ -14,6 +14,9 @@ configuration:
   quiet_hours:
     name: "Meldingen: stille uren voor het uurbericht"
     description: Bijvoorbeeld 23-7 = geen uurbericht tussen 23:00 en 07:00. Noodmeldingen komen altijd door. Leeg = altijd.
+  notify_recommendation_changes:
+    name: "Meldingen: popup als de aanbeveling wijzigt"
+    description: Bij stop-loss geraakt, doel gehaald, omslag van de richting of een duidelijk sterkere kandidaat.
   alerts_enabled:
     name: "Meldingen: noodmeldingen aan"
     description: Direct een alert als er iets groots aan lijkt te komen (koersexplosie, groot nieuws, insiders die samen kopen, ...).

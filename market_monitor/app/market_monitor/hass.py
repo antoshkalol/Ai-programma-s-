@@ -22,12 +22,12 @@ import json
 import logging
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import requests
 
 from .config import MARKET_LABELS
-from .db import Database
+from .db import Database, iso, parse_iso, utcnow
 from .scoring import fmt_price, fmt_usd
 from .summary import describe_trade, latest_summary
 
@@ -232,10 +232,34 @@ class HomeAssistant:
             f"sensor.market_monitor_{market}_recommendation", state,
             {"friendly_name": f"Market Monitor {MARKET_LABELS[market].lower()}: aanbeveling",
              "icon": "mdi:chart-timeline-variant-shimmer",
-             **{k: rec.get(k) for k in ("ticker", "name", "direction", "action", "conviction", "price", "entry_low",
-                                        "entry_high", "stop", "target1", "target2", "rr", "prob", "signals",
-                                        "since", "updated_at")}},
+             "status": (rec.get("status") or {}).get("text"),
+             **{k: rec.get(k) for k in ("ticker", "name", "direction", "action", "conviction", "price", "live_price",
+                                        "entry_low", "entry_high", "stop", "target1", "target2", "rr", "prob",
+                                        "signals", "since", "updated_at", "change_reason", "target1_hit")}},
         )
+
+    def notify_recommendation(self, market: str, res: dict) -> None:
+        """Popup als de aanbeveling wijzigt. Stop/doel altijd direct, overige wijzigingen max. 1x per 30 min."""
+        if not (self.enabled and self.cfg.notify_recommendation_changes):
+            return
+        event, st = res.get("event"), res["state"]
+        key = f"reco_notify_{market}"
+        last = parse_iso(self.db.get_state(key))
+        if event not in ("stop", "target1", "target2") and last and utcnow() - last < timedelta(minutes=30):
+            return
+        label = MARKET_LABELS[market].lower()
+        if event == "target1":
+            title = f"Doel 1 gehaald: {st['label']} {st['ticker']}"
+            message = (f"Koers {fmt_price(st.get('live_price'))}. Overweeg (een deel van de) winst te nemen; "
+                       f"de stop staat nu op de instapprijs {fmt_price(st['stop'])}.")
+        else:
+            now_txt = (f"{st['label']} {st['ticker']}" if st["direction"] != "neutral"
+                       else f"afwachten ({st['ticker']})")
+            title = f"Aanbeveling {label}: {now_txt}"
+            line = recommendation_line(st).removeprefix("Aanbeveling: ")
+            message = f"{res.get('reason', '')}.\nNu: {line}" if res.get("reason") else f"Nu: {line}"
+        self.notify(title, message, kind="summary", tag=f"market_monitor_reco_{market}")
+        self.db.set_state(key, iso(utcnow()))
 
     def publish_summaries(self, markets: list[str]) -> None:
         """Werkt de sensoren bij en stuurt één popup met beide markten (uurbericht)."""

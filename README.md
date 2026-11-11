@@ -125,7 +125,8 @@ gebeurd zijn.
 
 ## Aanbeveling: long of short, met technische analyse
 
-Het tabblad **Aanbeveling** toont per markt de beste kandidaat van dat moment. Elk kwartier kijkt de add-on
+Het tabblad **Aanbeveling** toont per markt de beste kandidaat van dat moment, met een vast plan en een live
+status (zie *Hoe de aanbeveling actueel blijft* hieronder). Elk kwartier kijkt de add-on
 naar de aandelen of munten met de meest uitgesproken koopscore (ver van 50, omhoog of omlaag). Daarvan wint de
 kandidaat waarbij model en techniek het overtuigendst dezelfde kant op wijzen.
 
@@ -167,6 +168,25 @@ is het grootste risico? Eerdere aanbevelingen worden bewaard, met hun resultaat 
 De aanbeveling staat ook in het uurbericht op je telefoon en in de sensor
 `sensor.market_monitor_<markt>_recommendation`.
 
+### Hoe de aanbeveling actueel blijft
+
+Instap, stop-loss en doelen staan vast zolang het plan geldt; zo zie je of het plan uitkomt. Elke **3 minuten**
+wordt het plan tegen de actuele koers gehouden.
+
+| Situatie | Wat er gebeurt |
+|---|---|
+| Koers in de instapzone | Status: "instappen kan nu" |
+| Koers ver boven/onder de instapzone | Status: "niet najagen, wacht op een terugval/opleving" |
+| **Doel 1 gehaald** | Stop gaat naar de instapprijs (winst veiligstellen), popup |
+| **Doel 2 gehaald** of **stop-loss geraakt** | Plan wordt gesloten en een nieuwe aanbeveling uitgegeven, popup. Na een geraakte stop wordt dezelfde kant van dat aandeel of die munt 24 uur niet opnieuw aanbevolen. |
+| Koopscore + techniek slaan om (bv. long → short) | Nieuw plan, popup |
+| Andere kandidaat duidelijk sterker (≥ 30% en het plan is minstens een uur oud) | Wisselen, popup |
+| 24 uur buiten de instapzone | Instap, stop en doelen bijgewerkt naar de huidige koers, popup |
+
+Wijzigingspopups komen hooguit eens per 30 minuten per markt; stop en doelen komen altijd direct. Uitzetten kan met
+`notify_recommendation_changes: false`. De koersen die hiervoor gebruikt worden, zijn voor crypto elke 3 minuten
+vers en voor aandelen elk kwartier tijdens beurstijd.
+
 > Shorten is riskanter dan kopen: je verlies kan groter zijn dan je inleg. Technische analyse is een
 > hulpmiddel, geen glazen bol. Gebruik altijd een stop-loss.
 
@@ -181,6 +201,7 @@ De aanbeveling staat ook in het uurbericht op je telefoon en in de sensor
 | `sec_user_agent` | **Verplicht** voor SEC-data (insiders en crypto-bedrijfsaankopen). Je naam en e-mailadres. Gaat alleen naar sec.gov. |
 | `notify_service` | Leeg = automatisch alle telefoons met de Home Assistant-app; of zelf invullen, zie hierboven. |
 | `notify_summaries` | Het uurbericht als popup sturen (standaard aan). |
+| `notify_recommendation_changes` | Popup als de aanbeveling wijzigt: stop of doel geraakt, richting omgeslagen, andere kandidaat (standaard aan). |
 | `quiet_hours` | Bijvoorbeeld `23-7`: dan geen uurbericht tussen 23:00 en 07:00 (noodmeldingen komen wel). Leeg = altijd. |
 | `alerts_enabled`, `alert_sensitivity`, `alert_critical`, `ai_check_alerts`, `max_alerts_per_day` | Instellingen van de noodmeldingen (zie hierboven). |
 | `anthropic_api_key` | Optioneel. Sleutel van [console.anthropic.com](https://console.anthropic.com) voor AI-samenvattingen en de AI-controle. Zonder sleutel krijg je een automatische samenvatting (gratis). |

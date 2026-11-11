@@ -91,6 +91,7 @@ class Config:
     notify_service: str = ""            # leeg = automatisch alle telefoons met de HA-app; of bv. mobile_app_iphone
     notify_summaries: bool = True       # samenvatting elk uur als pushbericht
     quiet_hours: str = ""               # bv. "23-7": dan geen uurbericht (noodmeldingen komen wel)
+    notify_recommendation_changes: bool = True  # popup als de aanbeveling wijzigt (stop, doel, omslag)
     alerts_enabled: bool = True
     alert_sensitivity: str = "normaal"  # laag | normaal | hoog
     alert_critical: bool = True         # noodmelding doorbreekt stil/niet-storen (iOS critical, Android alarm)

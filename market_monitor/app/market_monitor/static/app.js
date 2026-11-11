@@ -422,8 +422,11 @@
     return ticks;
   }
 
-  function priceChart(prices, currency) {
-    const W = 520, H = 220, m = { l: 48, r: 56, t: 10, b: 24 };
+  function priceChart(prices, currency, width) {
+    const W = Math.max(280, Math.round(width || 520));
+    const compact = W < 480;
+    const H = compact ? Math.round(W * 0.66) : Math.round(Math.min(260, W * 0.42));
+    const m = compact ? { l: 40, r: 50, t: 10, b: 24 } : { l: 48, r: 56, t: 10, b: 24 };
     const closes = prices.map((p) => p.close);
     const avg = sma(closes, 50);
     const all = closes.concat(avg.filter((v) => v !== null));
@@ -433,7 +436,7 @@
     const ticks = niceTicks(lo, hi, 4).filter((t) => t >= lo && t <= hi);
     const x = (i) => m.l + (i / Math.max(1, prices.length - 1)) * (W - m.l - m.r);
     const y = (v) => m.t + (1 - (v - lo) / (hi - lo)) * (H - m.t - m.b);
-    const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "Koersgrafiek met 50-daags gemiddelde" });
+    const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: "img", "aria-label": "Koersgrafiek met 50-daags gemiddelde" });
 
     ticks.forEach((t) => {
       root.appendChild(svg("line", { x1: m.l, x2: W - m.r, y1: y(t), y2: y(t), stroke: "var(--grid)", "stroke-width": 1 }));
@@ -554,7 +557,10 @@
       body.appendChild(el("div", { class: "legend" },
         el("span", null, el("span", { class: "key", style: "background: var(--series-1)" }), "Slotkoers"),
         el("span", null, el("span", { class: "key", style: "background: var(--series-2)" }), "50-daags gemiddelde")));
-      body.appendChild(el("div", { class: "chart-wrap" }, priceChart(data.prices, meta.currency)));
+      const wrap = el("div", { class: "chart-wrap", id: "drawer-chart" });
+      body.appendChild(wrap);
+      drawerData = { prices: data.prices, currency: meta.currency };
+      renderDrawerChart();
       const tableBox = el("div", { hidden: true });
       const last = data.prices.slice(-15).reverse();
       tableBox.appendChild(el("table", { class: "mini" },
@@ -583,6 +589,13 @@
         el("span", { class: "role", text: " · " + (n.source || "") + " · " + timeAgo(n.published_at) })))));
     } else body.appendChild(el("p", { class: "empty", text: "Geen recente berichten." }));
   }
+  let drawerData = null;
+  function renderDrawerChart() {
+    const wrap = $("drawer-chart");
+    if (!wrap || !drawerData) return;
+    clear(wrap);
+    wrap.appendChild(priceChart(drawerData.prices, drawerData.currency, wrap.clientWidth || 520));
+  }
   function closeDrawer() {
     const d = $("drawer");
     d.classList.remove("open");
@@ -608,10 +621,26 @@
   }
   $("rec-link").addEventListener("click", () => switchView("rec"));
 
+  const recData = {};
+  let resizeTimer = null, lastWidth = window.innerWidth;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (Math.abs(window.innerWidth - lastWidth) < 30) return;  // negeer kleine sprongen (bv. adresbalk)
+      lastWidth = window.innerWidth;
+      if (state.view === "rec") Object.entries(recData).forEach(([m, d]) => renderRecCard(m, d));
+      if (drawerData && $("drawer").classList.contains("open")) renderDrawerChart();
+    }, 250);
+  });
+
   async function loadRecommendations() {
     const markets = state.markets.length ? state.markets : ["stocks", "crypto"];
     ["stocks", "crypto"].forEach((m) => { $("rec-" + m).hidden = !markets.includes(m); });
-    await Promise.all(markets.map(async (m) => renderRecCard(m, await api("recommendation?market=" + m))));
+    await Promise.all(markets.map(async (m) => {
+      const d = await api("recommendation?market=" + m);
+      recData[m] = d;
+      renderRecCard(m, d);
+    }));
   }
 
   function planItem(label, value, sub, keyColor) {
@@ -637,6 +666,10 @@
         d.overview_at ? el("span", { text: "samenvatting " + fmtTime(d.overview_at) }) : null));
     if (d.overview) {
       brief.appendChild(document.createTextNode(d.overview));
+      const ch = rec && parseTime(rec.changed_at), ov = parseTime(d.overview_at);
+      if (ch && ov && ch > ov && rec.change_reason !== "Eerste aanbeveling") {
+        brief.appendChild(el("div", { class: "brief-stale", text: "Let op: het plan is na deze samenvatting gewijzigd (" + fmtTime(rec.changed_at) + "). De status en niveaus hieronder zijn actueel." }));
+      }
     } else {
       const now = el("button", { type: "button", class: "linkbtn", text: "Maak nu een samenvatting" });
       now.addEventListener("click", async () => { now.disabled = true; await fetch("api/summary/now?market=" + market, { method: "POST" }); loadRecommendations(); });
@@ -688,14 +721,25 @@
       el("div", { class: "dir-wrap" },
         el("span", { class: "dir-badge " + dir.cls, text: dir.text }),
         el("span", { class: "conv" }, "Overtuiging " + p.conviction + "%", convMeter))));
-    body.appendChild(el("div", { class: "rec-action", text: p.action + (rec.since ? " · sinds " + fmtDate(rec.since, true) : "") }));
+    const st = rec.status || {};
+    const stCls = { in_zone: "good", target1: "good", target2: "good", stop: "bad", above_zone: "warn", below_zone: "warn" }[st.code] || "neutral";
+    const stIco = { in_zone: "\u2713", target1: "\u2713", target2: "\u2713", stop: "\u2715", above_zone: "!", below_zone: "!" }[st.code] || "\u2013";
+    body.appendChild(el("div", { class: "rec-status " + stCls }, el("span", { class: "ico", text: stIco }), el("span", { text: st.text || "" })));
+    const metaParts = [p.action];
+    if (rec.since) metaParts.push("plan sinds " + fmtDate(rec.since, true) + (rec.issued_price ? " bij " + fmtPrice(rec.issued_price, cur) : ""));
+    if (rec.updated_at) metaParts.push("gecontroleerd " + fmtTime(rec.updated_at));
+    body.appendChild(el("div", { class: "rec-action", text: metaParts.join(" \u00B7 ") }));
+    const changedAt = parseTime(rec.changed_at);
+    if (rec.change_reason && changedAt && Date.now() - changedAt.getTime() < 6 * 3600 * 1000 && rec.change_reason !== "Eerste aanbeveling") {
+      body.appendChild(el("div", { class: "rec-change", text: "Gewijzigd om " + fmtTime(rec.changed_at) + ": " + rec.change_reason + (rec.previous ? " (was " + rec.previous.label + " " + rec.previous.ticker + ")" : "") }));
+    }
     body.appendChild(brief);
 
     const grid = el("div", { class: "plan-grid" });
     if (p.direction !== "neutral") {
       grid.append(
         planItem("Instapzone", fmtPrice(p.entry_low, cur) + " - " + fmtPrice(p.entry_high, cur), rel((p.entry_low + p.entry_high) / 2) + " t.o.v. nu", "var(--text-2)"),
-        planItem("Stop-loss", fmtPrice(p.stop, cur), rel(p.stop) + (p.risk_pct ? " · risico " + nf1.format(p.risk_pct) + "%" : ""), "var(--critical)"),
+        planItem("Stop-loss", fmtPrice(p.stop, cur), rec.target1_hit ? "verplaatst naar instapprijs" : rel(p.stop) + (p.risk_pct ? " \u00B7 risico " + nf1.format(p.risk_pct) + "%" : ""), "var(--critical)"),
         planItem("Doel 1", fmtPrice(p.target1, cur), rel(p.target1), "var(--good)"),
         planItem("Doel 2", fmtPrice(p.target2, cur), rel(p.target2), "var(--good)"),
         planItem("Risico / rendement", p.rr ? "1 : " + nf1.format(p.rr) : "-", "tot doel 1"),
@@ -722,8 +766,13 @@
       el("span", null, el("span", { class: "key", style: "background: var(--axis)" }), "Steun / weerstand"),
       p.direction !== "neutral" ? el("span", null, el("span", { class: "key dash", style: "color: var(" + (p.direction === "long" ? "--pos" : "--neg") + ")" }), "Scenario") : null,
       el("span", null, el("span", { class: "key band", style: "background: color-mix(in srgb, var(" + (p.direction === "short" ? "--neg" : "--pos") + ") 18%, transparent)" }), "Verwachting ±1σ")));
-    body.appendChild(el("div", { class: "ta-chart" }, taChart(rec, market)));
-    body.appendChild(el("div", { class: "ta-chart" }, rsiChart(rec)));
+    const chartBox = el("div", { class: "ta-chart" });
+    body.appendChild(chartBox);
+    const cw = chartBox.clientWidth || body.clientWidth || 760;
+    chartBox.appendChild(taChart(rec, market, cw));
+    const rsiBox = el("div", { class: "ta-chart" });
+    body.appendChild(rsiBox);
+    rsiBox.appendChild(rsiChart(rec, cw));
 
     const cols = el("div", { class: "rec-cols" });
     cols.appendChild(el("div", null, el("h3", { text: "Technische signalen" }),
@@ -759,10 +808,14 @@
     return nf0.format(v);
   }
 
-  function taChart(rec, market) {
+  function taChart(rec, market, width) {
     const c = rec.chart, p = rec.plan, cur = rec.currency;
     const n = c.close.length, h = c.future_dates.length, total = n - 1 + h;
-    const W = 760, H = 340, m = { l: 52, r: 96, t: 12, b: 24 };
+    // Tekenen op de echte breedte (1:1), zodat tekst op elk scherm leesbaar blijft
+    const W = Math.max(300, Math.round(width || 760));
+    const compact = W < 560;
+    const H = compact ? Math.round(W * 0.92) : Math.round(Math.min(400, W * 0.46));
+    const m = compact ? { l: 42, r: 70, t: 14, b: 24 } : { l: 52, r: 96, t: 12, b: 24 };
     const x = (i) => m.l + (i / total) * (W - m.l - m.r);
     const ok = (v) => v !== null && v !== undefined && !isNaN(v);
     const vals = c.close.concat(c.bb_upper.filter(ok), c.bb_lower.filter(ok), c.cone_low, c.cone_high);
@@ -771,7 +824,7 @@
     const pad = (hi - lo) * 0.06 || hi * 0.05;
     lo -= pad; hi += pad;
     const y = (v) => m.t + (1 - (v - lo) / (hi - lo)) * (H - m.t - m.b);
-    const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": `Koersgrafiek ${rec.ticker} met technische analyse en verwachting` });
+    const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: "img", "aria-label": `Koersgrafiek ${rec.ticker} met technische analyse en verwachting` });
     const add = (tag, attrs) => { const e = svg(tag, attrs); root.appendChild(e); return e; };
     const txt = (xx, yy, str, attrs) => { const e = add("text", Object.assign({ x: xx, y: yy }, attrs || {})); e.textContent = str; return e; };
 
@@ -779,17 +832,20 @@
     add("rect", { x: x(n - 1), y: m.t, width: x(total) - x(n - 1), height: H - m.t - m.b, fill: "var(--surface-2)", opacity: 0.6 });
     txt(x(n - 1) + 6, m.t + 12, "verwachting", { class: "axis-label" });
     // raster
-    niceTicks(lo, hi, 5).filter((v) => v >= lo && v <= hi).forEach((v) => {
+    niceTicks(lo, hi, compact ? 4 : 5).filter((v) => v >= lo && v <= hi).forEach((v) => {
       add("line", { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), stroke: "var(--grid)", "stroke-width": 1 });
       txt(m.l - 6, y(v) + 4, axisFmt(v, hi), { class: "axis-label", "text-anchor": "end" });
     });
     add("line", { x1: m.l, x2: W - m.r, y1: H - m.b, y2: H - m.b, stroke: "var(--axis)", "stroke-width": 1 });
     const allDates = c.dates.concat(c.future_dates);
-    let lastMonth = null;
+    let lastMonth = null, lastLabelX = -999;
     allDates.forEach((dt, i) => {
       const mo = dt.slice(0, 7);
       if (mo !== lastMonth) {
-        if (lastMonth !== null) txt(x(i), H - 6, new Date(dt + "T00:00:00Z").toLocaleDateString("nl-NL", { month: "short" }), { class: "axis-label", "text-anchor": "middle" });
+        if (lastMonth !== null && x(i) - lastLabelX >= 34 && x(i) < W - m.r - 10) {
+          txt(x(i), H - 6, new Date(dt + "T00:00:00Z").toLocaleDateString("nl-NL", { month: "short" }), { class: "axis-label", "text-anchor": "middle" });
+          lastLabelX = x(i);
+        }
         lastMonth = mo;
       }
     });
@@ -815,17 +871,17 @@
     c.levels.forEach((lv) => {
       if (lv.price < lo || lv.price > hi) return;
       add("line", { x1: m.l, x2: W - m.r, y1: y(lv.price), y2: y(lv.price), stroke: "var(--axis)", "stroke-width": 1 });
-      labels.push({ v: lv.price, text: (lv.kind === "steun" ? "Steun " : "Weerst. ") + axisFmt(lv.price, hi), prio: 3 });
+      if (!compact) labels.push({ v: lv.price, text: (lv.kind === "steun" ? "Steun " : "Weerst. ") + axisFmt(lv.price, hi), prio: 3 });
     });
     // plan: instapzone, stop, doelen (vanaf 'nu' naar rechts)
     const nowX = x(n - 1);
     if (p.direction !== "neutral") {
       const top = Math.max(p.entry_low, p.entry_high), bot = Math.min(p.entry_low, p.entry_high);
       add("rect", { x: nowX, y: y(top), width: x(total) - nowX, height: Math.max(2, y(bot) - y(top)), fill: "var(--text-2)", "fill-opacity": 0.16 });
-      labels.push({ v: (top + bot) / 2, text: "Instap " + axisFmt((top + bot) / 2, hi), prio: 1 });
+      if (!compact) labels.push({ v: (top + bot) / 2, text: "Instap " + axisFmt((top + bot) / 2, hi), prio: 1 });
       add("line", { x1: nowX, x2: x(total), y1: y(p.stop), y2: y(p.stop), stroke: "var(--critical)", "stroke-width": 2 });
       labels.push({ v: p.stop, text: "Stop " + axisFmt(p.stop, hi), prio: 0, color: "var(--critical)" });
-      [["Doel 1", p.target1], ["Doel 2", p.target2]].forEach(([lab, v]) => {
+      [[compact ? "D1" : "Doel 1", p.target1], [compact ? "D2" : "Doel 2", p.target2]].forEach(([lab, v]) => {
         add("line", { x1: nowX, x2: x(total), y1: y(v), y2: y(v), stroke: "var(--good)", "stroke-width": 2 });
         labels.push({ v, text: lab + " " + axisFmt(v, hi), prio: 0, color: "var(--good)" });
       });
@@ -849,18 +905,44 @@
     line(c.sma20.map((v, i) => [i, v]), { stroke: "var(--series-3)", "stroke-width": 2 });
     line(closePts, { stroke: "var(--series-1)", "stroke-width": 2 });
     add("line", { x1: nowX, x2: nowX, y1: m.t, y2: H - m.b, stroke: "var(--axis)", "stroke-width": 1 });
-    txt(nowX - 4, m.t + 12, "nu", { class: "axis-label", "text-anchor": "end" });
+    txt(nowX - 4, m.t - 2 + (compact ? 0 : 14), "nu", { class: "axis-label", "text-anchor": "end" });
     add("circle", { cx: nowX, cy: y(p.price), r: 4, fill: "var(--series-1)", stroke: "var(--surface)", "stroke-width": 2 });
-    labels.push({ v: p.price, text: axisFmt(p.price, hi), prio: 0, strong: true });
+    labels.push({ v: p.price, text: (compact ? "" : "Nu ") + axisFmt(p.price, hi), prio: -1, strong: true });
 
     // labels rechts, zonder overlap (belangrijkste eerst)
-    const placed = [];
-    labels.sort((a, b) => a.prio - b.prio).forEach((lb) => {
-      const yy = y(lb.v);
-      if (yy < m.t || yy > H - m.b || placed.some((py) => Math.abs(py - yy) < 12)) return;
-      placed.push(yy);
-      if (lb.color) add("line", { x1: W - m.r + 3, x2: W - m.r + 9, y1: yy, y2: yy, stroke: lb.color, "stroke-width": 2 });
-      txt(W - m.r + 12, yy + 4, lb.text, { class: "lvl-label" + (lb.strong || lb.color ? " strong" : "") });
+    // Labels rechts: in de volgorde van hun waarde gestapeld en net genoeg uit elkaar geschoven (min. 13px).
+    // Past het niet, dan vallen eerst de minst belangrijke labels weg. Verschoven labels krijgen een lijntje.
+    const GAP = 13, top0 = m.t + 4, bot0 = H - m.b;
+    let cand = labels.filter((lb) => y(lb.v) >= m.t && y(lb.v) <= H - m.b);
+    while (cand.length * GAP > bot0 - top0 && cand.length) {
+      const worst = cand.reduce((w, lb) => (lb.prio > w.prio ? lb : w), cand[0]);
+      cand = cand.filter((lb) => lb !== worst);
+    }
+    cand.sort((a, b) => y(a.v) - y(b.v));
+    const pos = cand.map((lb) => y(lb.v));
+    for (let iter = 0; iter < 50; iter++) {
+      let moved = false;
+      for (let i = 1; i < pos.length; i++) {
+        if (pos[i] - pos[i - 1] < GAP) {
+          const mid = (pos[i] + pos[i - 1]) / 2;
+          pos[i - 1] = mid - GAP / 2;
+          pos[i] = mid + GAP / 2;
+          moved = true;
+        }
+      }
+      if (pos.length) {
+        if (pos[0] < top0) { const d = top0 - pos[0]; for (let i = 0; i < pos.length; i++) pos[i] += d; moved = true; }
+        const last = pos.length - 1;
+        if (pos[last] > bot0) { const d = pos[last] - bot0; for (let i = 0; i < pos.length; i++) pos[i] -= d; moved = true; }
+      }
+      if (!moved) break;
+    }
+    cand.forEach((lb, i) => {
+      const yy = y(lb.v), ly = pos[i];
+      const stroke = lb.color || "var(--axis)";
+      if (Math.abs(ly - yy) > 1) add("line", { x1: W - m.r + 1, x2: W - m.r + 8, y1: yy, y2: ly, stroke, "stroke-width": 1.5 });
+      else if (lb.color) add("line", { x1: W - m.r + 3, x2: W - m.r + 9, y1: yy, y2: yy, stroke: lb.color, "stroke-width": 2 });
+      txt(W - m.r + 12, ly + 4, lb.text, { class: "lvl-label" + (lb.strong || lb.color ? " strong" : "") });
     });
 
     // crosshair + tooltip op de historie
@@ -899,12 +981,15 @@
     return root;
   }
 
-  function rsiChart(rec) {
+  function rsiChart(rec, width) {
     const c = rec.chart, n = c.close.length, h = c.future_dates.length, total = n - 1 + h;
-    const W = 760, H = 86, m = { l: 52, r: 96, t: 8, b: 14 };
+    const W = Math.max(300, Math.round(width || 760));
+    const compact = W < 560;
+    const H = compact ? 66 : 86;
+    const m = compact ? { l: 42, r: 70, t: 8, b: 12 } : { l: 52, r: 96, t: 8, b: 14 };
     const x = (i) => m.l + (i / total) * (W - m.l - m.r);
     const y = (v) => m.t + (1 - v / 100) * (H - m.t - m.b);
-    const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "RSI (14 dagen)" });
+    const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: "img", "aria-label": "RSI (14 dagen)" });
     const add = (tag, attrs) => { const e = svg(tag, attrs); root.appendChild(e); return e; };
     add("rect", { x: m.l, y: y(70), width: x(n - 1) - m.l, height: y(30) - y(70), fill: "var(--muted)", "fill-opacity": 0.08 });
     [30, 70].forEach((v) => {

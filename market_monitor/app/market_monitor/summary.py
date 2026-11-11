@@ -212,6 +212,11 @@ class Summarizer:
         }
         if method == "ai":
             content["model"] = self.cfg.anthropic_model
+        rec = data.get("recommendation")
+        if rec:
+            # Om later te weten of het commentaar nog bij de geldende aanbeveling hoort
+            content["recommendation_ref"] = {"ticker": rec.get("ticker"), "direction": rec.get("direction"),
+                                             "since": rec.get("since")}
         self.db.execute(
             "INSERT INTO summaries(market, period_start, period_end, created_at, method, content) VALUES (?,?,?,?,?,?)",
             (market, start, end, iso(utcnow()), method, json.dumps(content, ensure_ascii=False)),
