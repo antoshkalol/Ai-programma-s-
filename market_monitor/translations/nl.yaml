@@ -111,6 +111,26 @@ configuration:
     description: Berichten daaronder worden weggefilterd. Hoger = strenger.
   x_bearer_token:
     name: X (Twitter) bearer token (optioneel, betaald)
+  allow_live_trading:
+    name: "Handelen: live handelen met echt geld toestaan"
+    description: >-
+      Hoofdschakelaar. Uit = alleen paper trading (oefenen met nepgeld). Aan = je kunt in het tabblad Trading een
+      live-run starten. Begin altijd met proefdraaien en kleine bedragen.
+  bitvavo_api_key:
+    name: "Handelen: Bitvavo API-sleutel"
+    description: >-
+      Bitvavo > Instellingen > API. Geef alleen de rechten 'Bekijken' en 'Handelen', NOOIT 'Opnemen'. Zet een
+      IP-whitelist aan.
+  bitvavo_api_secret:
+    name: "Handelen: Bitvavo API-geheim"
+  trading212_api_key:
+    name: "Handelen: Trading 212 API-sleutel"
+    description: >-
+      Trading 212 > Instellingen > API (bèta), alleen voor een Invest-account. Maak de sleutel aan in de omgeving
+      die je kiest (demo of live, zie het tabblad Trading). Zet een IP-beperking aan.
+  trading212_api_secret:
+    name: "Handelen: Trading 212 API-geheim"
+    description: Bij nieuwe sleutels hoort een geheim. Bij een oude sleutel zonder geheim leeg laten.
   publish_to_home_assistant:
     name: Sensoren publiceren in Home Assistant
   log_level:

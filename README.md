@@ -26,6 +26,10 @@ met een duidelijke splitsing tussen de twee (tabbladen *Aandelen* en *Crypto*).
   uurberichten door.
 - Een **kooplijst** met per aandeel of munt een score (0-100), een geschatte **kans op stijging** (~1 maand) en
   een **instapmoment**.
+- **Zelfstandig handelen (nieuw in 0.6):** zet een budget klaar en laat het model 24/7 zelf kopen en verkopen via
+  **Bitvavo** (crypto) en **Trading 212** (aandelen), met Claude als beslisser en harde risicogrenzen. Eerst oefenen
+  met **paper trading** (nepgeld, echte koersen), tests vergelijken en de instellingen bijstellen. Zie
+  [Zelfstandig handelen](#zelfstandig-handelen-bitvavo--trading-212).
 
 Het draait als add-on op **Home Assistant OS** (bijvoorbeeld op een Raspberry Pi 4 of 5) en verschijnt als paneel
 in de zijbalk.
@@ -33,6 +37,8 @@ in de zijbalk.
 ![Aandelen (demodata met verzonnen namen)](docs/screenshot.png)
 
 ![Aanbeveling met technische analyse (demodata)](docs/screenshot-aanbeveling.png)
+
+![Trading: paper-tests, resultaten en logboek (demodata)](docs/trading-desktop.png)
 
 <details><summary>Crypto-tabblad en detailweergave</summary>
 
@@ -192,6 +198,217 @@ vers en voor aandelen elk kwartier tijdens beurstijd.
 
 ---
 
+## Zelfstandig handelen (Bitvavo + Trading 212)
+
+Op het tabblad **Trading** zet je een budget klaar. Het model zoekt dan 24/7 naar de beste kansen in aandelen en
+crypto, beslist zelf wat het koopt of verkoopt, hoeveel en wanneer, en voert de orders uit. Je hoeft niets te
+bevestigen. Het volgt daarvoor drie dingen:
+
+- **de techniek:** trend, momentum (MACD, RSI), steun en weerstand;
+- **het nieuws en de posts op X** van de accounts die je volgt;
+- **de grote kopers:** insiders, politici en bedrijven die crypto kopen.
+
+> **Echt geld, echt risico.** Ook met een slim model kun je (een deel van) je inleg verliezen. Een paper-test van
+> een paar uur zegt weinig over de toekomst. Begin klein, met geld dat je kunt missen. Dit is geen beleggingsadvies.
+
+### Het schema
+
+```mermaid
+flowchart LR
+  subgraph Bronnen
+    N[Nieuws: RSS, Google News, GDELT]
+    X[Posts op X]
+    T[Transacties: insiders, politici, bedrijven]
+    K[Koersen: Yahoo/Nasdaq/Twelve Data, CoinGecko]
+  end
+  subgraph Pi["Raspberry Pi: Home Assistant add-on"]
+    F[Nieuwsfilter + sentiment]
+    S[Koopscore + technische analyse]
+    G[Signaal per aandeel/munt<br/>techniek + kopers + nieuws + X<br/>met jouw gewichten]
+    R[Regels: voorstellen<br/>overtuiging, risico/rendement, niet najagen]
+    RISK[Risicobewaking<br/>positiegrootte, max. posities,<br/>daglimiet, noodrem]
+    E[Uitvoeren + administratie<br/>stops, doelen, trailing stop]
+    D[Dashboard: tabblad Trading<br/>+ popups op je telefoon]
+  end
+  C[(Claude in de cloud<br/>beslist met onderbouwing)]
+  P[Paper-broker<br/>gesimuleerd]
+  B1[Bitvavo<br/>crypto]
+  B2[Trading 212<br/>aandelen]
+  N --> F
+  X --> F
+  F --> S
+  T --> S
+  K --> S
+  S --> G --> R
+  R -- "voorstellen + context" --> C
+  C -- "beslissingen (JSON)" --> RISK
+  R -- "zonder AI" --> RISK
+  RISK --> E
+  E --> P
+  E --> B1
+  E --> B2
+  E --> D
+```
+
+### Hoe het werkt
+
+**Elke minuut, voor elke actieve run (paper-tests en de live-run):**
+1. De posities worden gewaardeerd tegen de actuele koers, in euro (met de ECB-wisselkoers).
+2. Stops, doelen, de trailing stop en de maximale looptijd worden gecontroleerd:
+   - stop-loss geraakt → positie sluiten;
+   - doel 1 gehaald → een deel verkopen (standaard 50%) en de stop naar de instapprijs plus kosten;
+   - daarna schuift de stop mee met de koers (trailing stop);
+   - doel 2 gehaald → alles verkopen.
+3. **Risicobewaking:**
+   - bij het maximale dagverlies komen er die dag geen nieuwe posities meer bij;
+   - bij de maximale terugval vanaf de hoogste stand stopt de run helemaal (noodrem, met een kritieke melding).
+
+**Elke 15 minuten (instelbaar), en direct bij groot nieuws:**
+1. **Signaal per aandeel/munt:** de sterkste kandidaten krijgen een score van -1 (sterk dalen) tot +1 (sterk
+   stijgen). Daarin tellen techniek, grote kopers, nieuws en X mee, met de gewichten die jij kiest.
+2. **De regels doen voorstellen:** voldoende overtuiging, de techniek wijst niet de andere kant op, de koers is
+   niet al weggelopen ("niet najagen") en het risico/rendement is minstens 1,5.
+3. **Claude beslist:** per voorstel en per open positie, met een onderbouwing. Claude krijgt daarvoor:
+   - de signalen, de technische analyse, de nieuwskoppen en X-posts;
+   - de noodmeldingen, je portefeuille en de recente trades;
+   - zijn eigen marktvisie van de vorige keer.
+
+   In de modus *vrij* mag Claude ook zelf een kandidaat kiezen. Alles staat met de reden in het **logboek**.
+4. **De code bewaakt altijd de grenzen,** wat Claude ook zegt:
+   - alleen aandelen/munten uit de kandidatenlijst;
+   - positiegrootte volgens jouw risico per trade;
+   - maximale positie, blootstelling, aantal posities en trades per dag;
+   - geen short als dat niet mag;
+   - geen handel op een verouderde koers;
+   - aandelen alleen tijdens beurstijd.
+5. Uitvoeren bij de broker (of in de simulatie) en een popup op je telefoon.
+
+**Positiegrootte:** het risico per trade (standaard 1% van je budget) gedeeld door de afstand tot de stop-loss.
+Een ruime stop geeft dus een kleinere positie. Bij lagere overtuiging of een kleinere `size_factor` van Claude
+wordt de positie kleiner. Nooit groter dan de maximale positie (standaard 25%).
+
+**Zonder AI-sleutel** of als Claude niet bereikbaar is, handelt het model alleen op de regels. Dat staat dan ook
+in het logboek.
+
+### Short gaan: alleen in paper trading
+
+Live kan het model **alleen long** (kopen en verkopen):
+- **Trading 212:** de API werkt alleen voor het Invest-account (en ISA). Short gaan kan alleen in het
+  CFD-account, en daar is geen API voor.
+- **Bitvavo:** short gaan (marge) kan sinds 2026 in de app, maar niet via de API.
+
+Een short-signaal betekent live dus: een longpositie in dat aandeel of die munt sluiten, of niet instappen. In
+paper trading kun je shorten wel simuleren (`allow_short`). Wil je later echt shorten, dan is een broker met
+margehandel of futures via een API nodig, zoals Interactive Brokers of Kraken. Dat zit nog niet in de add-on.
+
+### Stappenplan
+
+1. **Instellingen.** Kies op het tabblad Trading je budgetten en je risico (zie de uitleg bij elk veld) en klik op
+   **Opslaan**.
+2. **Paper-tests.** Start een paper-test van bijvoorbeeld 4 uur. Start er gerust een paar tegelijk met
+   verschillende instellingen (maximaal 5), bijvoorbeeld:
+   - stijl *kort* tegenover *swing*;
+   - een hogere minimale overtuiging;
+   - een ander gewicht voor nieuws.
+3. **Vergelijken.** De tabel *Tests vergelijken* toont per test het resultaat, de grootste terugval, de win-rate,
+   de winstfactor en de kosten. Klik een test aan voor de grafiek, de trades en het logboek, en kies **Instellingen
+   van deze run overnemen** voor de beste. Een paar uur is vooral een functietest. Laat de beste instellingen
+   daarna minstens een paar dagen tot weken lopen voordat je conclusies trekt.
+4. **Accounts en sleutels** (zie hieronder). Zet `allow_live_trading` aan.
+5. **Proefdraaien.** Start live met **Proefdraaien** aan:
+   - je saldo wordt echt gelezen, maar orders worden alleen gelogd;
+   - test eerst met **Verbinding testen**;
+   - voor Trading 212 kun je ook de demo-omgeving gebruiken (oefenaccount met nepgeld bij Trading 212 zelf).
+6. **Klein beginnen.** Zet Proefdraaien uit, kies een klein budget en typ `IK BEGRIJP HET RISICO` om te starten.
+   Stoppen kan altijd: **Stop en sluit alles** of **Stop, laat posities staan**.
+
+### Accounts en API-sleutels
+
+**Bitvavo (crypto, Nederlands, MiCA-vergunning bij de AFM):**
+1. Ga naar *Instellingen → API* en maak een sleutel aan met **alleen** de rechten *Bekijken* en *Handelen*.
+   Geef **nooit** het recht *Opnemen*.
+2. Zet een IP-whitelist aan met het (vaste) IP-adres van je thuisverbinding.
+3. Vul `bitvavo_api_key` en `bitvavo_api_secret` in bij de add-on opties.
+
+Het model handelt in euromarkten (BTC-EUR enz.) met marktorders. Elke cryptopositie krijgt ook een
+**stop-loss-order op Bitvavo zelf**. Zo ben je beschermd als de Pi uitvalt.
+
+**Trading 212 (aandelen):**
+1. Gebruik een **Invest**-account. Ga naar *Instellingen → API (bèta)* en maak een sleutel aan. Je krijgt een
+   sleutel en een geheim.
+2. Zet een IP-beperking aan.
+3. Vul `trading212_api_key` en `trading212_api_secret` in. Kies op het tabblad Trading de omgeving: `demo` of
+   `live`. De sleutel moet uit dezelfde omgeving komen.
+
+Via de API zijn alleen marktorders mogelijk. De stop-loss bewaakt de Pi zelf, alleen tijdens beurstijd (15:30-22:00
+Nederlandse tijd). Valt de Pi uit, dan is er voor aandelen geen stop.
+
+### Claude instellen
+
+De Raspberry Pi is te licht om zelf een AI-model te draaien. Dat hoeft ook niet: **Claude draait in de cloud van
+Anthropic.** De Pi stuurt per beslismoment een verzoek met de gegevens (JSON) en krijgt de beslissingen terug.
+
+1. Maak een account op [console.anthropic.com](https://console.anthropic.com).
+2. Zet bij *Billing* tegoed op je account (bijvoorbeeld $20) en eventueel een maandlimiet.
+3. Maak bij *API keys* een sleutel aan en vul die in bij de add-on optie `anthropic_api_key`. Dezelfde sleutel
+   wordt gebruikt voor de samenvattingen en de controle van noodmeldingen.
+4. Kies op het tabblad Trading het model, het denkniveau, hoe vaak Claude maximaal beslist en het maximum aantal
+   aanroepen per dag.
+
+**Wat kost het?** Een beslissing is ongeveer 10.000 tokens invoer en 2.500 tokens uitvoer (inclusief nadenken).
+Met 15 minuten tussen de beslissingen en het standaardmaximum van 100 aanroepen per run per dag:
+
+| Model | Prijs per miljoen tokens (in/uit) | Per beslissing | Per run per dag (max. 100) |
+|---|---|---|---|
+| `claude-opus-5-5` (standaard, slimst) | $4 / $20 | ~$0,09 | ~$9 |
+| `claude-sonnet-5-5` | $2 / $10 | ~$0,045 | ~$4,50 |
+| `claude-haiku-5-5` (goedkoopst) | $0,10 / $0,50 | ~$0,002 | ~$0,25 |
+
+Elke paper-test met AI kost apart. Draai je vijf tests tegelijk, dan kost het ook vijf keer zoveel. Je kunt het
+verlagen met:
+- een goedkoper model voor de paper-tests;
+- een langer interval (`ai_min_interval_minutes`);
+- een lager `ai_max_calls_per_day`.
+
+Het dashboard toont per run de **werkelijke** AI-kosten, berekend uit de tokens die de API teruggeeft.
+
+### Veiligheid
+
+- **Hoofdschakelaar:** live handelen kan alleen met de add-on optie `allow_live_trading` aan. Zonder die optie kan
+  niemand via het dashboard live handelen.
+- **Live starten** vraagt een bevestiging (`IK BEGRIJP HET RISICO`), tenzij je proefdraait.
+- **API-sleutels:** zonder opnamerechten en met een IP-whitelist. De add-on bewaart ze alleen in de add-on opties
+  en toont ze nergens.
+- **Eigen administratie:** het model verkoopt alleen wat het zelf gekocht heeft, nooit je andere beleggingen. Het
+  gebruikt nooit meer dan het budget (en het vrije saldo bij de broker).
+- **Geen dubbele orders:** een order wordt nooit automatisch opnieuw verstuurd. Is het onzeker of een order is
+  uitgevoerd (bijvoorbeeld bij een time-out), dan stopt de run en krijg je een melding om je account te
+  controleren.
+- **Noodrem en daglimiet** met een kritieke popup op je telefoon.
+
+### Belangrijkste instellingen
+
+| Instelling | Standaard | Wat het doet |
+|---|---|---|
+| Budget aandelen / crypto | €1.000 / €1.000 | Maximaal in te zetten bedrag per broker (0 = die markt niet verhandelen). |
+| Risico per trade | 1% | Verlies als de stop-loss geraakt wordt; bepaalt de positiegrootte. |
+| Maximale positie | 25% | Maximaal deel van het budget in één aandeel of munt. |
+| Maximale blootstelling (marge) | 100% | Boven 100% = met hefboom; alleen in paper trading. |
+| Maximaal verlies per dag | 4% | Daarna die dag geen nieuwe posities. |
+| Noodrem | 15% | Terugval vanaf de hoogste stand waarbij de run stopt. |
+| Handelsstijl | swing | *swing* = dagen tot weken; *kort* = uren tot dagen (krappere stops). |
+| Minimale overtuiging / risico-rendement | 35 / 1,5 | Hoe streng de regels zijn. |
+| Gewichten techniek/kopers/nieuws/X | 40/25/20/15 | Waar het signaal op let. |
+| Shorten toestaan | aan | Alleen in paper trading (zie hierboven). |
+| AI: vrijheid / model / interval | vrij / Opus 5.5 / 15 min | Hoeveel Claude zelf mag, welk model en hoe vaak. |
+| Kosten en slippage | 0,25% / 0,15% / 0,10% | Voor een realistische paper-simulatie. |
+| Proefdraaien | aan | Live zonder echte orders. |
+
+Alle instellingen staan met uitleg en grenzen in het dashboard. Een test krijgt bij de start een kopie, zodat je
+tests met verschillende instellingen kunt vergelijken.
+
+---
+
 ## Configuratie
 
 **Algemeen en meldingen**
@@ -208,6 +425,11 @@ vers en voor aandelen elk kwartier tijdens beurstijd.
 | `stock_price_api_key` | Optioneel: een gratis sleutel van [twelvedata.com](https://twelvedata.com) voor betrouwbare aandelenkoersen. Aanrader als de aandelen-aanbeveling of koersen ontbreken. |
 | `anthropic_model`, `anthropic_effort` | Het Claude-model en hoe grondig het nadenkt. Standaard `claude-opus-5-5` en `medium`. |
 | `summary_interval_minutes` | Hoe vaak de samenvatting komt; standaard 60. |
+| `allow_live_trading` | Hoofdschakelaar voor live handelen met echt geld (standaard uit: alleen paper trading). |
+| `bitvavo_api_key`, `bitvavo_api_secret` | Sleutel van Bitvavo, alleen met de rechten bekijken en handelen. |
+| `trading212_api_key`, `trading212_api_secret` | Sleutel van Trading 212 (Invest-account, demo of live). |
+
+De overige handelsinstellingen (budget, risico, AI, ...) stel je in op het tabblad **Trading**.
 
 **Aandelen:** `enable_stocks`, `stock_watchlist`, `stock_news_queries`, `stock_x_accounts`, `enable_sec_form4`,
 `enable_house`, `enable_senate`, `quiver_api_key` (optioneel, betaald), `min_trade_value_usd`, `big_trade_alert_usd`.
@@ -309,6 +531,7 @@ maanden draaien), wordt de kans **gekalibreerd** op die echte resultaten.
 | `sensor.market_monitor_stocks_recommendation` / `..._crypto_recommendation` | Bijv. `LONG NVDA` of `AFWACHTEN (BTC)` | `entry_low`, `entry_high`, `stop`, `target1`, `target2`, `rr`, `prob`, `conviction`, `signals` |
 | `sensor.market_monitor_alert` | Laatste noodmelding | `market`, `asset`, `kind`, `message`, `ai_note` |
 | `sensor.market_monitor_status` | `ok` of `fout` | `bronnen_met_fouten` |
+| `sensor.market_monitor_trading` | Vermogen van de live-run in euro, of `geen live-run` | `live_resultaat_pct`, `live_open_posities`, `runs` |
 
 ### Events
 
@@ -372,6 +595,14 @@ content: |
     (`stock_price_api_key`).
   - CoinGecko heeft zonder sleutel een lage limiet; met de gratis demo-sleutel gaat het ruimer.
 - **Senaat:** de website van de Senaat staat alleen niet-commercieel gebruik van de data toe.
+- **Handelen:**
+  - de koppelingen met Bitvavo en Trading 212 zijn gebouwd volgens hun documentatie en getest met nagebootste
+    antwoorden, nog niet tegen de echte API's. Begin daarom met **Verbinding testen** en **Proefdraaien**.
+  - De API van Trading 212 is in bèta. De uitvoeringsprijs wordt uitgelezen als de API die teruggeeft; anders
+    rekent de administratie met de laatste koers.
+  - De technische analyse gebruikt dagkoersen. Aandelenkoersen komen tijdens beurstijd elk kwartier binnen,
+    cryptokoersen elke 3 minuten. Stops worden daarom met die vertraging gecontroleerd.
+  - Amerikaanse feestdagen worden niet herkend; de broker weigert dan de order.
 
 ## Ideeën voor later
 
@@ -414,6 +645,13 @@ market_monitor/                 de add-on
     summary.py                  samenvatting per markt (Claude of automatisch)
     alerts.py                   noodmeldingen (detectoren, afkoelperiode, daglimiet, AI-controle)
     hass.py                     sensoren, events en popup-meldingen naar je telefoon
+    trading/                    zelfstandig handelen:
+      settings.py               alle instelbare variabelen (grenzen, uitleg)
+      signals.py                signaal per aandeel/munt + stop/doelen
+      engine.py                 de motor: risico, positiegrootte, stops, beslissen, administratie
+      ai.py                     Claude als beslisser (gestructureerde JSON, kostenteller)
+      brokers.py                paper-simulatie, Bitvavo (HMAC), Trading 212 (Basic auth)
+      fx.py                     euro/dollar via de ECB
     web.py, static/             dashboard en API
   app/tests/                    tests met voorbeeldbestanden
 ```

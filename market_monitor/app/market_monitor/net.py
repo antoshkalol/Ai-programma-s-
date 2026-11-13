@@ -32,6 +32,10 @@ HOST_RATES = {
     "efts.sec.gov": 4.0,
     "api.coingecko.com": 0.2,     # gratis limiet is laag: max ~12 per minuut
     "blockchain.info": 1.0,
+    "www.ecb.europa.eu": 0.5,
+    "api.bitvavo.com": 5.0,          # ruim onder de limiet van 1000 gewichtspunten per minuut
+    "live.trading212.com": 0.5,      # Trading 212 heeft lage limieten per endpoint
+    "demo.trading212.com": 0.5,
 }
 
 

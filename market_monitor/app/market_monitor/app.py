@@ -27,6 +27,7 @@ from .sources.senate import SenateSource
 from .sources.x_posts import XSource
 from .summary import Summarizer
 from .tickers import TickerExtractor
+from .trading import TradingEngine
 
 log = logging.getLogger(__name__)
 
@@ -49,7 +50,8 @@ class MarketMonitor:
         self.summarizer = Summarizer(cfg, self.db, self.ingestor)
         self.hass = HomeAssistant(cfg, self.db)
         self.alerts = AlertEngine(cfg, self.db, self.hass, self.summarizer)
-        self.scheduler = Scheduler(self.db, workers=4)
+        self.trading = TradingEngine(cfg, self.db, self.recommender, self.summarizer, self.hass, make_session())
+        self.scheduler = Scheduler(self.db, workers=5)
         self.job_markets: dict[str, str] = {}
         self._register_jobs()
 
@@ -112,6 +114,8 @@ class MarketMonitor:
         self._add("all", Job("recommend", self._recommend_job, 3 * MIN, initial_delay=160))
         if cfg.alerts_enabled:
             self._add("all", Job("alerts", self.alerts.run, 2 * MIN, initial_delay=4 * MIN))
+        # Handelsmotor: elke minuut (doet niets zolang er geen paper-test of live-run actief is)
+        self._add("all", Job("trading", self.trading.tick, 1 * MIN, initial_delay=200))
         self._add("all", Job("calibration", self._calibrate, 24 * HOUR, initial_delay=10 * MIN))
         self._add("all", Job("cleanup", self.cleanup, 24 * HOUR, initial_delay=1 * HOUR))
 
@@ -124,6 +128,7 @@ class MarketMonitor:
         rows = self.db.query("SELECT ticker, score FROM scores_latest WHERE market='stocks'")
         rows.sort(key=lambda r: -abs(r["score"] - 50))
         out += [r["ticker"] for r in rows[:5]]
+        out = self.trading.priority_tickers("stocks") + out    # aandelen met een open positie eerst
         return list(dict.fromkeys(out))
 
     def _trade_job(self, source):

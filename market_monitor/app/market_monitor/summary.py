@@ -12,7 +12,7 @@ import re
 from collections import defaultdict
 from datetime import timedelta
 
-from .config import MARKET_LABELS
+from .config import FALLBACK_MODELS, MARKET_LABELS
 from .db import Database, iso, utcnow
 from .markets import crypto_proxies
 from .scoring import fmt_num, fmt_price, fmt_usd
@@ -232,24 +232,36 @@ class Summarizer:
         return self._client
 
     def ask_json(self, system: str, text: str, schema: dict, effort: str | None = None,
-                 max_tokens: int = 16000) -> dict:
-        """Eén Claude-aanroep met gestructureerde JSON-uitvoer (gebruikt door samenvatting en noodmelding)."""
+                 max_tokens: int = 16000, model: str | None = None, usage: dict | None = None) -> dict:
+        """Eén Claude-aanroep met gestructureerde JSON-uitvoer (samenvatting, noodmelding, handelsbeslissing).
+
+        'usage' (optioneel) wordt gevuld met het tokengebruik, voor de kostenteller van de handelsmodule."""
+        model = model or self.cfg.anthropic_model
         output_config: dict = {"format": {"type": "json_schema", "schema": schema}}
-        if not self.cfg.anthropic_model.startswith(EFFORT_UNSUPPORTED_PREFIXES):
+        if not model.startswith(EFFORT_UNSUPPORTED_PREFIXES):
             output_config["effort"] = effort or self.cfg.anthropic_effort
         kwargs = dict(
-            model=self.cfg.anthropic_model,
+            model=model,
             max_tokens=max_tokens,
             system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
             messages=[{"role": "user", "content": text}],
             output_config=output_config,
         )
         client = self.client()
-        if self.cfg.model_supports_fallback:
+        if model in FALLBACK_MODELS:
             # Bij een (zeldzame) weigering laat de API een ander model het verzoek afmaken
             resp = client.beta.messages.create(betas=["server-side-fallback-2026-07-01"], fallbacks="default", **kwargs)
         else:
             resp = client.messages.create(**kwargs)
+        if usage is not None and getattr(resp, "usage", None) is not None:
+            u = resp.usage
+            usage.update({
+                "model": getattr(resp, "model", model) or model,
+                "input": getattr(u, "input_tokens", 0) or 0,
+                "output": getattr(u, "output_tokens", 0) or 0,
+                "cache_read": getattr(u, "cache_read_input_tokens", 0) or 0,
+                "cache_write": getattr(u, "cache_creation_input_tokens", 0) or 0,
+            })
         if resp.stop_reason in ("refusal", "max_tokens"):
             raise RuntimeError(f"AI stopte met stop_reason={resp.stop_reason}")
         out_text = next((b.text for b in resp.content if b.type == "text"), None)

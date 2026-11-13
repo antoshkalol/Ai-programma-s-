@@ -187,6 +187,102 @@ CREATE TABLE IF NOT EXISTS state (
     value TEXT
 );
 
+CREATE TABLE IF NOT EXISTS trading_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    mode TEXT NOT NULL,            -- paper | live
+    status TEXT NOT NULL,          -- running | stopped | finished | halted
+    created_at TEXT NOT NULL,
+    ends_at TEXT,                  -- paper: einde van de test
+    ended_at TEXT,
+    settings TEXT NOT NULL,        -- kopie van de instellingen bij de start
+    capital TEXT NOT NULL,         -- {"stocks": euro, "crypto": euro}
+    state TEXT NOT NULL DEFAULT '{}',
+    stats TEXT,
+    halt_reason TEXT,
+    ai_calls INTEGER DEFAULT 0,
+    ai_cost_usd REAL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS trading_positions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    market TEXT NOT NULL,
+    ticker TEXT NOT NULL,
+    side TEXT NOT NULL,            -- long | short
+    status TEXT NOT NULL,          -- open | closed
+    qty REAL NOT NULL,             -- huidige hoeveelheid
+    qty_initial REAL NOT NULL,
+    entry_price REAL NOT NULL,     -- in dollar (zoals de koersen in het dashboard)
+    entry_price_eur REAL NOT NULL,
+    opened_at TEXT NOT NULL,
+    stop REAL,
+    target1 REAL,
+    target2 REAL,
+    atr REAL,
+    high_water REAL,
+    low_water REAL,
+    t1_done INTEGER DEFAULT 0,
+    conviction REAL,
+    source TEXT,                   -- regels | ai
+    reason_open TEXT,
+    closed_at TEXT,
+    exit_price REAL,
+    reason_close TEXT,
+    pnl_eur REAL DEFAULT 0,        -- gerealiseerd (inclusief kosten)
+    fees_eur REAL DEFAULT 0,
+    stop_order_id TEXT,            -- Bitvavo stop-loss-order op de beurs
+    last_price REAL,
+    details TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_tpos ON trading_positions(run_id, status);
+
+CREATE TABLE IF NOT EXISTS trading_fills (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    position_id INTEGER,
+    ts TEXT NOT NULL,
+    market TEXT NOT NULL,
+    ticker TEXT NOT NULL,
+    action TEXT NOT NULL,          -- buy | sell | short | cover
+    qty REAL NOT NULL,
+    price REAL NOT NULL,
+    price_eur REAL NOT NULL,
+    value_eur REAL NOT NULL,
+    fee_eur REAL NOT NULL,
+    pnl_eur REAL,
+    broker TEXT,
+    order_id TEXT,
+    dry_run INTEGER DEFAULT 0,
+    note TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_tfills ON trading_fills(run_id, ts);
+
+CREATE TABLE IF NOT EXISTS trading_decisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    ts TEXT NOT NULL,
+    market TEXT,
+    ticker TEXT,
+    action TEXT NOT NULL,          -- open_long | open_short | close | reduce | stop | info | ai | halt ...
+    outcome TEXT NOT NULL,         -- uitgevoerd | afgewezen | info | fout
+    actor TEXT NOT NULL,           -- regels | ai | risico | systeem
+    conviction REAL,
+    size_eur REAL,
+    reason TEXT,
+    details TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_tdec ON trading_decisions(run_id, id);
+
+CREATE TABLE IF NOT EXISTS trading_equity (
+    run_id INTEGER NOT NULL,
+    ts TEXT NOT NULL,
+    equity REAL NOT NULL,
+    cash REAL,
+    exposure REAL,
+    PRIMARY KEY (run_id, ts)
+);
+
 CREATE TABLE IF NOT EXISTS job_status (
     name TEXT PRIMARY KEY,
     last_run TEXT,
@@ -242,13 +338,21 @@ class Database:
         self._write_lock = threading.Lock()
         with self._write_lock:
             version = self.conn.execute("PRAGMA user_version").fetchone()[0]
+            saved: list = []
             if version < SCHEMA_VERSION:
-                # De database is een cache van openbare data: bij een nieuwe versie bouwen we hem opnieuw op
+                # De database is een cache van openbare data: bij een nieuwe versie bouwen we hem opnieuw op,
+                # behalve de handelsadministratie (trading_*) en de handelsinstellingen: die zijn van jou.
                 tables = [r[0] for r in self.conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                    " AND name NOT LIKE 'trading_%'")]
+                if "state" in tables:
+                    saved = [tuple(r) for r in self.conn.execute(
+                        "SELECT key, value FROM state WHERE key LIKE 'trading_%'")]
                 for t in tables:
                     self.conn.execute(f'DROP TABLE IF EXISTS "{t}"')
             self.conn.executescript(SCHEMA)
+            if saved:
+                self.conn.executemany("INSERT OR REPLACE INTO state(key, value) VALUES (?, ?)", saved)
             # Kolommen die in latere versies zijn toegevoegd (bestaande databases blijven werken)
             for table, col, typ in MIGRATIONS:
                 cols = {r[1] for r in self.conn.execute(f"PRAGMA table_info({table})")}

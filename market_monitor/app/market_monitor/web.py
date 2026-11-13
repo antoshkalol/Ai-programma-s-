@@ -16,6 +16,9 @@ from .config import MARKET_LABELS, MARKETS
 from .db import ago, iso, utcnow
 from .markets import crypto_proxies
 from .summary import latest_summary, trades_sql
+from .trading import settings as tsettings
+from .trading.brokers import BitvavoBroker, BrokerError, Trading212Broker
+from .trading.engine import CONFIRM_TEXT
 
 STATIC = Path(__file__).parent / "static"
 
@@ -272,6 +275,116 @@ def create_app(monitor) -> Flask:
     @app.post("/api/notify/test")
     def notify_test():
         return jsonify(monitor.hass.send_test())
+
+    # ------------------------------------------------------------------ handelen
+    trading = monitor.trading
+
+    def _json_body() -> dict:
+        data = request.get_json(silent=True)
+        return data if isinstance(data, dict) else {}
+
+    @app.get("/api/trading")
+    def trading_overview():
+        runs = db.query("SELECT id FROM trading_runs ORDER BY id DESC LIMIT 40")
+        summaries = [trading.run_summary(trading.get_run(r["id"])) for r in runs]
+        current = trading.settings()
+        return jsonify({
+            "settings": current,
+            "schema": tsettings.schema(),
+            "runs": summaries,
+            "live_checks": trading.live_checks(current),
+            "allow_live": cfg.allow_live_trading,
+            "ai_available": cfg.llm_enabled,
+            "keys": {"bitvavo": bool(cfg.bitvavo_api_key and cfg.bitvavo_api_secret),
+                     "trading212": bool(cfg.trading212_api_key)},
+            "confirm_text": CONFIRM_TEXT,
+            "markets": cfg.markets,
+        })
+
+    @app.post("/api/trading/settings")
+    def trading_save_settings():
+        new, errors = trading.save_settings(_json_body())
+        return jsonify({"ok": not errors, "settings": new, "errors": errors}), (200 if not errors else 400)
+
+    @app.post("/api/trading/settings/reset")
+    def trading_reset_settings():
+        db.set_state(tsettings.STATE_KEY, dict(tsettings.DEFAULTS))
+        return jsonify({"ok": True, "settings": trading.settings()})
+
+    @app.post("/api/trading/settings/from/<int:run_id>")
+    def trading_settings_from_run(run_id: int):
+        run = trading.get_run(run_id)
+        if not run:
+            abort(404)
+        new, errors = trading.save_settings(run["settings"])
+        return jsonify({"ok": not errors, "settings": new, "errors": errors})
+
+    @app.post("/api/trading/runs")
+    def trading_start():
+        body = _json_body()
+        hours = body.get("hours")
+        try:
+            hours = float(hours) if hours not in (None, "", 0, "0") else None
+            run = trading.start_run(body.get("mode", "paper"), str(body.get("name") or "").strip(), hours,
+                                    str(body.get("confirm") or ""))
+        except (TypeError, ValueError) as exc:
+            return jsonify({"ok": False, "message": str(exc)}), 400
+        return jsonify({"ok": True, "run": trading.run_summary(run)})
+
+    @app.get("/api/trading/runs/<int:run_id>")
+    def trading_run(run_id: int):
+        d = trading.detail(run_id)
+        if not d:
+            abort(404)
+        return jsonify(d)
+
+    @app.post("/api/trading/runs/<int:run_id>/stop")
+    def trading_stop(run_id: int):
+        body = _json_body()
+        run = trading.stop_run(run_id, close_positions=bool(body.get("close", True)),
+                               reason=str(body.get("reason") or "Handmatig gestopt")[:200])
+        if not run:
+            abort(404)
+        return jsonify({"ok": True, "run": trading.run_summary(run)})
+
+    @app.post("/api/trading/runs/<int:run_id>/delete")
+    def trading_delete(run_id: int):
+        run = trading.get_run(run_id)
+        if not run:
+            abort(404)
+        if run["status"] == "running":
+            return jsonify({"ok": False, "message": "Stop de run eerst"}), 400
+        for table in ("trading_positions", "trading_fills", "trading_decisions", "trading_equity"):
+            db.execute(f"DELETE FROM {table} WHERE run_id=?", (run_id,))
+        db.execute("DELETE FROM trading_runs WHERE id=?", (run_id,))
+        return jsonify({"ok": True})
+
+    @app.post("/api/trading/check")
+    def trading_check():
+        """Verbinding met de brokers testen: alleen saldo lezen, nooit een order."""
+        current = trading.settings()
+        out = []
+        if cfg.bitvavo_api_key and cfg.bitvavo_api_secret:
+            try:
+                b = BitvavoBroker(cfg.bitvavo_api_key, cfg.bitvavo_api_secret, current, dry_run=True)
+                out.append({"broker": "Bitvavo", "ok": True,
+                            "message": f"Verbonden. Vrij saldo: €{b.free_cash_eur():,.2f}"})
+            except BrokerError as exc:
+                out.append({"broker": "Bitvavo", "ok": False, "message": str(exc)})
+        else:
+            out.append({"broker": "Bitvavo", "ok": False, "message": "Geen API-sleutel ingevuld"})
+        if cfg.trading212_api_key:
+            try:
+                b = Trading212Broker(cfg.trading212_api_key, cfg.trading212_api_secret, current, dry_run=True, db=db)
+                cash = b.free_cash_eur()
+                env = current["trading212_env"]
+                out.append({"broker": f"Trading 212 ({env})", "ok": True,
+                            "message": "Verbonden." + (f" Vrij saldo: €{cash:,.2f}" if cash is not None else "")})
+            except BrokerError as exc:
+                out.append({"broker": "Trading 212", "ok": False, "message": str(exc)})
+        else:
+            out.append({"broker": "Trading 212", "ok": False, "message": "Geen API-sleutel ingevuld"})
+        return jsonify({"results": out})
 
     @app.post("/api/run/<job>")
     def run_job(job: str):

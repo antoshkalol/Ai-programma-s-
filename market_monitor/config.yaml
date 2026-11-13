@@ -1,10 +1,11 @@
 name: Market Monitor
-version: "0.5.0"
+version: "0.6.0"
 slug: market_monitor
 description: >-
   Volgt grote transacties op de aandelen- en cryptomarkt (politici, insiders, bedrijven, walvissen),
   filtert het nieuws op betrouwbaarheid, maakt elk uur een samenvatting en geeft direct een noodmelding
   als er iets groots aan lijkt te komen, met een aanbeveling (long/short) en technische analyse.
+  Optioneel: zelfstandig handelen via Bitvavo (crypto) en Trading 212 (aandelen), eerst met paper trading.
 url: https://github.com/antoshkalol/Ai-programma-s-
 arch:
   - aarch64
@@ -116,6 +117,11 @@ options:
   blocked_domains: []
   min_news_credibility: 0.45
   x_bearer_token: ""
+  allow_live_trading: false
+  bitvavo_api_key: ""
+  bitvavo_api_secret: ""
+  trading212_api_key: ""
+  trading212_api_secret: ""
   publish_to_home_assistant: true
   log_level: info
 schema:
@@ -172,5 +178,10 @@ schema:
     - str?
   min_news_credibility: float(0,1)
   x_bearer_token: password?
+  allow_live_trading: bool
+  bitvavo_api_key: password?
+  bitvavo_api_secret: password?
+  trading212_api_key: password?
+  trading212_api_secret: password?
   publish_to_home_assistant: bool
   log_level: list(debug|info|warning|error)

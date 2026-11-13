@@ -16,6 +16,7 @@
       <button type="button" role="tab" data-market="stocks" aria-selected="true">Aandelen</button>
       <button type="button" role="tab" data-market="crypto" aria-selected="false">Crypto</button>
       <button type="button" role="tab" data-market="rec" aria-selected="false">Aanbeveling</button>
+      <button type="button" role="tab" data-market="trade" aria-selected="false">Trading</button>
     </nav>
     <div class="mood" id="mood" aria-live="polite"></div>
     <div class="stats" id="stats"></div>
@@ -109,10 +110,76 @@
     <section class="panel rec-card" id="rec-crypto" data-rec-market="crypto"></section>
   </main>
 
+  <main class="trade-view" id="trade-view" hidden aria-label="Zelfstandig handelen">
+    <section class="panel trade-panel" id="trade-status" aria-labelledby="h-trade-status">
+      <div class="panel-head">
+        <h2 id="h-trade-status">Handelen <span class="sub" id="trade-ai-line"></span></h2>
+        <div class="filters"><button type="button" id="trade-refresh">Verversen</button></div>
+      </div>
+      <div class="panel-body">
+        <div class="run-cards" id="trade-runs-active"></div>
+        <div class="trade-start">
+          <div class="start-box" id="paper-box">
+            <h3>Nieuwe paper-test</h3>
+            <p class="sub">Oefenen met nepgeld op echte koersen, met de instellingen hieronder. Je kunt tot 5 tests
+              tegelijk laten lopen om instellingen te vergelijken.</p>
+            <div class="form-row">
+              <label>Naam <input type="text" id="paper-name" maxlength="80" placeholder="bv. Voorzichtig"></label>
+              <label>Duur
+                <select id="paper-hours">
+                  <option value="1">1 uur</option><option value="2">2 uur</option><option value="4" selected>4 uur</option>
+                  <option value="8">8 uur</option><option value="24">1 dag</option><option value="72">3 dagen</option>
+                  <option value="168">1 week</option><option value="336">2 weken</option><option value="0">doorlopend</option>
+                </select>
+              </label>
+              <button type="button" class="primary" id="paper-start">Start paper-test</button>
+            </div>
+          </div>
+          <div class="start-box live" id="live-box">
+            <h3>Live handelen <span class="sub">Bitvavo (crypto) · Trading 212 (aandelen)</span></h3>
+            <ul class="checks" id="live-checks"></ul>
+            <p class="sub" id="live-mode-line"></p>
+            <div class="form-row">
+              <button type="button" id="live-test">Verbinding testen</button>
+              <label id="live-confirm-wrap" hidden>Bevestig <input type="text" id="live-confirm" autocomplete="off"></label>
+              <button type="button" class="danger" id="live-start">Start live</button>
+            </div>
+            <ul class="checks" id="live-test-results"></ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel trade-panel" id="trade-detail" aria-labelledby="h-trade-detail">
+      <div class="panel-head">
+        <h2 id="h-trade-detail">Resultaten <span class="sub" id="trade-detail-sub"></span></h2>
+        <div class="filters"><select id="trade-run-select" aria-label="Kies een run"></select></div>
+      </div>
+      <div class="panel-body" id="trade-detail-body"></div>
+    </section>
+
+    <section class="panel trade-panel" id="trade-compare" aria-labelledby="h-trade-compare">
+      <div class="panel-head"><h2 id="h-trade-compare">Tests vergelijken <span class="sub">klik op een regel voor de details</span></h2></div>
+      <div class="panel-body"><div class="table-wrap" id="trade-compare-body"></div></div>
+    </section>
+
+    <section class="panel trade-panel" id="trade-settings" aria-labelledby="h-trade-settings">
+      <div class="panel-head">
+        <h2 id="h-trade-settings">Instellingen <span class="sub">gelden voor nieuwe tests en de volgende live-run</span></h2>
+        <div class="filters">
+          <button type="button" id="settings-reset">Standaardwaarden</button>
+          <button type="button" class="primary" id="settings-save">Opslaan</button>
+        </div>
+      </div>
+      <div class="panel-body"><form id="settings-form" novalidate></form><p class="form-msg" id="settings-msg" role="status"></p></div>
+    </section>
+  </main>
+
   <footer class="disclaimer">
     Geen beleggingsadvies. Scores, kansen en noodmeldingen zijn modelinschattingen op basis van openbare data en kunnen
     er flink naast zitten. Politici melden transacties tot 45 dagen later, insiders binnen 2 werkdagen. Grote
-    crypto-transfers zeggen niets over de richting. Koersen kunnen vertraagd zijn.
+    crypto-transfers zeggen niets over de richting. Koersen kunnen vertraagd zijn. Zelfstandig handelen gebeurt op
+    eigen risico: je kunt (een deel van) je inleg verliezen, en resultaten uit paper trading zijn geen garantie.
   </footer>
 
   <div class="drawer-backdrop" id="drawer-backdrop" hidden></div>
@@ -130,5 +197,6 @@
   <div class="tooltip" id="tooltip" role="status" hidden></div>
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
   <script src="static/app.js"></script>
+  <script src="static/trading.js"></script>
 </body>
 </html>

@@ -98,6 +98,13 @@ class Config:
     ai_check_alerts: bool = True        # laat Claude een noodmelding eerst controleren (met API-sleutel)
     max_alerts_per_day: int = 6
 
+    # ---------------------------------------------------------------- Handelen (zie het tabblad Trading)
+    allow_live_trading: bool = False    # hoofdschakelaar voor echt geld; uit = alleen paper trading
+    bitvavo_api_key: str = ""           # rechten: alleen bekijken + handelen, NOOIT opnemen
+    bitvavo_api_secret: str = ""
+    trading212_api_key: str = ""
+    trading212_api_secret: str = ""
+
     # Home Assistant
     publish_to_home_assistant: bool = True
 
@@ -151,7 +158,8 @@ class Config:
         """Configuratie zonder geheimen, voor het dashboard."""
         d = asdict(self)
         for secret in ("anthropic_api_key", "quiver_api_key", "x_bearer_token", "coingecko_api_key",
-                       "stock_price_api_key"):
+                       "stock_price_api_key", "bitvavo_api_key", "bitvavo_api_secret", "trading212_api_key",
+                       "trading212_api_secret"):
             d[secret] = bool(d[secret])
         d["sec_user_agent"] = bool(self.sec_headers_ok)
         d["markets"] = self.markets
@@ -217,6 +225,10 @@ def load_config(data_dir: str = "/data", port: int = 8099) -> Config:
         "MM_X_BEARER_TOKEN": "x_bearer_token",
         "MM_COINGECKO_API_KEY": "coingecko_api_key",
         "MM_STOCK_PRICE_API_KEY": "stock_price_api_key",
+        "MM_BITVAVO_API_KEY": "bitvavo_api_key",
+        "MM_BITVAVO_API_SECRET": "bitvavo_api_secret",
+        "MM_TRADING212_API_KEY": "trading212_api_key",
+        "MM_TRADING212_API_SECRET": "trading212_api_secret",
     }
     for env, attr in env_map.items():
         if os.environ.get(env) and not getattr(cfg, attr):

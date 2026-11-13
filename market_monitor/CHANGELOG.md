@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.6.0
+
+- **Zelfstandig handelen** (nieuw tabblad **Trading**): het model koopt en verkoopt zelf binnen jouw budget,
+  crypto via **Bitvavo** en aandelen via **Trading 212**.
+  - **Signaal per aandeel/munt:** techniek, grote kopers, nieuws en posts op X, met instelbare gewichten.
+  - **Claude beslist mee** (optioneel), met een onderbouwing per beslissing en een eigen marktvisie.
+    - In de modus *vrij* mag Claude ook zelf kandidaten kiezen.
+    - Zonder AI-sleutel handelt het model op de regels.
+    - De werkelijke AI-kosten staan per run in het dashboard.
+  - **Risicobeheer:**
+    - positiegrootte op basis van het risico per trade;
+    - maximale positie, blootstelling en aantal posities;
+    - trades per dag, daglimiet en een noodrem met een kritieke popup.
+  - **Posities beheren:**
+    - stop-loss en twee doelen; bij doel 1 deels winst nemen en de stop naar de instapprijs plus kosten;
+    - trailing stop, maximale looptijd en uitstappen als het signaal omslaat;
+    - direct beslissen bij groot nieuws of een noodmelding.
+  - **Paper trading:** nepgeld op echte koersen, met kosten, slippage en (gesimuleerd) shorten. Tot 5 tests
+    tegelijk, met een vergelijkingstabel, vermogensgrafiek, trades en een logboek met de reden van elke beslissing.
+    De instellingen van de beste test neem je met één klik over.
+  - **Live handelen:**
+    - hoofdschakelaar `allow_live_trading`;
+    - proefdraaien (saldo lezen, geen orders);
+    - een bevestigingszin en verbinding testen;
+    - stop-loss-orders op Bitvavo zelf.
+
+    Live kan alleen long, want de API's van Bitvavo en Trading 212 ondersteunen geen short.
+  - **Sensor** `sensor.market_monitor_trading` en popups bij trades (instelbaar).
+- **Nieuwe opties:** `allow_live_trading`, `bitvavo_api_key`, `bitvavo_api_secret`, `trading212_api_key`,
+  `trading212_api_secret`. Alle andere handelsinstellingen staan in het dashboard.
+- **Database:** de handelsadministratie en -instellingen blijven bewaard bij toekomstige updates.
+- **Telefoon:** de vier tabbladen passen naast elkaar op een smal scherm.
+
 ## 0.5.0
 
 - **Aanbeveling blijft actueel:**

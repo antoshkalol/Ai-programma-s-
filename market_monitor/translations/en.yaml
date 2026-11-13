@@ -88,6 +88,24 @@ configuration:
     name: "News: minimum credibility (0-1)"
   x_bearer_token:
     name: X (Twitter) bearer token (optional, paid)
+  allow_live_trading:
+    name: "Trading: allow live trading with real money"
+    description: >-
+      Master switch. Off = paper trading only. On = you can start a live run in the Trading tab. Always start with
+      a dry run and small amounts.
+  bitvavo_api_key:
+    name: "Trading: Bitvavo API key"
+    description: Grant only 'View' and 'Trade' permissions, NEVER 'Withdraw'. Enable an IP whitelist.
+  bitvavo_api_secret:
+    name: "Trading: Bitvavo API secret"
+  trading212_api_key:
+    name: "Trading: Trading 212 API key"
+    description: >-
+      Trading 212 > Settings > API (beta), Invest account only. Create it in the environment you select (demo or
+      live) in the Trading tab. Enable an IP restriction.
+  trading212_api_secret:
+    name: "Trading: Trading 212 API secret"
+    description: New keys come with a secret. Leave empty for an old key without a secret.
   publish_to_home_assistant:
     name: Publish sensors to Home Assistant
   log_level:

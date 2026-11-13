@@ -27,7 +27,7 @@
     actor: "all", type: "all", min: 100000, junk: "0", summaries: [], summaryId: null,
     markets: ["stocks", "crypto"], sound: recall("mm-sound", "off") === "on",
     rotate: hashMarket === "rotate" || recall("mm-rotate", "off") === "on",
-    view: ["aanbeveling", "rec"].includes(hashMarket) ? "rec" : null,
+    view: ["aanbeveling", "rec"].includes(hashMarket) ? "rec" : (["trading", "trade"].includes(hashMarket) ? "trade" : null),
     lastAlertId: +recall("mm-last-alert", "0"), alerts: [],
   };
   state.min = TEXT[state.market].min;
@@ -175,7 +175,7 @@
   async function loadOverview() {
     const o = await api(q("overview"));
     state.markets = o.markets.map((m) => m.key);
-    document.querySelectorAll("#market-tabs button").forEach((b) => { b.hidden = b.dataset.market !== "rec" && !state.markets.includes(b.dataset.market); });
+    document.querySelectorAll("#market-tabs button").forEach((b) => { b.hidden = !["rec", "trade"].includes(b.dataset.market) && !state.markets.includes(b.dataset.market); });
     if (!state.markets.includes(state.market) && state.markets.length) { switchMarket(state.markets[0]); return; }
     renderRecLink(o.recommendation);
     const mood = $("mood");
@@ -1073,7 +1073,8 @@
     document.querySelectorAll("#market-tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.market === state.view)));
     document.body.dataset.view = state.view;
     $("rec-view").hidden = state.view !== "rec";
-    document.querySelector("main.grid").hidden = state.view === "rec";
+    $("trade-view").hidden = state.view !== "trade";
+    document.querySelector("main.grid").hidden = state.view === "rec" || state.view === "trade";
     document.querySelectorAll("[data-market-chip]").forEach((c) => { c.textContent = t.label; });
     $("t-trades").textContent = t.trades;
     $("t-trades-sub").textContent = t.tradesSub;
@@ -1087,6 +1088,16 @@
   }
   function switchView(v) {
     if (v === state.view) return;
+    if (v === "trade") {
+      state.view = "trade";
+      if (state.rotate) { state.rotate = false; store("mm-rotate", "off"); applyRotate(); }
+      history.replaceState(null, "", "#trading");
+      closeDrawer();
+      applyMarketTexts();
+      document.title = "Market Monitor - Trading";
+      refreshAll();
+      return;
+    }
     if (v === "rec") {
       state.view = "rec";
       if (!state.rotate) history.replaceState(null, "", "#aanbeveling");
@@ -1203,7 +1214,9 @@
   function refreshAll() {
     const jobs = state.view === "rec"
       ? [loadOverview(), loadAlerts(), loadRecommendations()]
-      : [loadOverview(), loadTrades(), loadNews(), loadAlerts().then(loadSummaries), loadScores()];
+      : state.view === "trade"
+        ? [loadOverview(), loadAlerts(), window.MMTrading ? window.MMTrading.refresh() : Promise.resolve()]
+        : [loadOverview(), loadTrades(), loadNews(), loadAlerts().then(loadSummaries), loadScores()];
     return Promise.allSettled(jobs).then((res) => {
       res.forEach((r) => { if (r.status === "rejected") console.error(r.reason); });
     });
