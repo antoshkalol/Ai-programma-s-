@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.7.0
+
+- **Kan ik nu kopen?** Elke aanbeveling heeft een blok JA/NEE met de reden, bijvoorbeeld:
+  - in de instapzone;
+  - wacht op een terugval (limietorder);
+  - niet najagen;
+  - te laat (doel 1 al gehaald);
+  - stop geraakt;
+  - de analyse is omgeslagen.
+- **Eerdere aanbevelingen aanklikbaar:**
+  - het advies van toen;
+  - wat er sindsdien gebeurde: stop of doelen geraakt (met datum), je resultaat als je het volgde;
+  - het oordeel van nu, met de grafiek van nu en de oude niveaus erop.
+- **Mijn posities:** geef aan dat je iets gekocht hebt (bedrag en aankoopkoers).
+  - Live advies: houden, deels verkopen, laten lopen (trailing stop), verkopen of let op.
+  - **Melding met hoge prioriteit** wanneer je moet verkopen: stop-loss, doel 1 (helft verkopen, stop naar
+    aankoopprijs), doel 2, trailing stop geraakt, of als de analyse omslaat.
+  - Sensor `sensor.market_monitor_holdings`.
+- **Budgetplan:** vul je budget in en kies een profiel (voorzichtig/normaal/offensief). Je krijgt:
+  - per aandeel of munt: hoeveel en wanneer (nu of een limietorder), de zekerheid, de onderbouwing en een
+    verkoopplan;
+  - het totaal: winst bij doel 1 en volgens plan, maximaal verlies, verwachte waarde en een analyse in gewone taal;
+  - een melding als een "koop bij terugval" in de instapzone komt;
+  - optioneel een beoordeling door Claude.
+- **Uitgebreidere technische analyse:**
+  - een scorekaart met 200-daags gemiddelde, golden/death cross, EMA 9/21, stochastic, RSI-divergentie,
+    trendstructuur, koersverandering, jaarhoog/-laag, Bollinger-squeeze en Fibonacci;
+  - in de grafiek SMA 200 en Fibonacci-niveaus, plus een MACD-strook;
+  - een jaar koershistorie (was 6 maanden).
+- **Crypto-transacties:**
+  - grote bitcoin-transfers krijgen een soort: samenvoegen, uitbetaling of verplaatsing (in plaats van alleen
+    "transfer");
+  - bedrijfsaankopen uit 8-K-meldingen voor 10 munten (was 3), ook in het tabelformaat van Strategy;
+  - bij de eerste start 60 dagen terug.
+- **X-posts:**
+  - nieuw filter *Posts op X* in het nieuwspaneel, met de reden als er geen posts zijn;
+  - nieuwe optie `x_rss_template` als alternatief voor de betaalde X API.
+- **Nieuwe opties:** `notify_holdings`, `x_rss_template`.
+- Je posities en budget blijven bewaard bij toekomstige updates.
+
 ## 0.6.0
 
 - **Zelfstandig handelen** (nieuw tabblad **Trading**): het model koopt en verkoopt zelf binnen jouw budget,

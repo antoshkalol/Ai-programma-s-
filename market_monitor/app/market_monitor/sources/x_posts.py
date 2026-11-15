@@ -1,11 +1,17 @@
-"""Posts van belangrijke accounts op X (optioneel; de X API is betaald).
+"""Posts van belangrijke accounts op X.
 
-Gebruikt het 'recent search'-endpoint van API v2 met een bearer token.
+Twee manieren (beide optioneel):
+  * de officiële X API (betaald): 'recent search'-endpoint van API v2 met een bearer token (x_bearer_token)
+  * een RSS-bron per account (x_rss_template), bv. een eigen RSS-bridge of Nitter-server:
+    https://jouw-server/{account}/rss. Werkt alleen zolang die dienst werkt.
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import re
+from urllib.parse import urlparse
 
 import requests
 
@@ -99,4 +105,58 @@ class XSource:
                 newest = nid
         if newest:
             self.db.set_state(state_key, newest)
+        return self.ingest(items, trusted_authors={a.lower() for a in accounts})
+
+
+STATUS_RE = re.compile(r"/([A-Za-z0-9_]{1,30})/status(?:es)?/(\d+)")
+
+
+def parse_x_rss(content: bytes | str, account: str) -> list[dict]:
+    """RSS van een account (Nitter/RSS-bridge) -> posts. Links worden omgezet naar x.com."""
+    from .news import _entry_time, strip_html
+    import feedparser
+
+    items = []
+    for e in feedparser.parse(content).entries:
+        text = strip_html(e.get("title") or e.get("summary"), 800)
+        link = e.get("link") or ""
+        if not text:
+            continue
+        if text.startswith("RT by ") or text.startswith("RT @"):
+            continue          # retweets overslaan, net als bij de X API
+        m = STATUS_RE.search(urlparse(link).path or "")
+        if m:
+            pid = f"x:{m.group(2)}"
+            url = f"https://x.com/{m.group(1)}/status/{m.group(2)}"
+        else:
+            pid = "xrss:" + hashlib.sha1((link or text).encode()).hexdigest()[:20]
+            url = link
+        items.append({"id": pid, "source": f"X @{account}", "domain": "x.com", "kind": "post", "author": account,
+                      "title": text[:300], "summary": text[300:800], "url": url, "published_at": _entry_time(e)})
+    return items
+
+
+class XRssSource:
+    name = "x_rss"
+
+    def __init__(self, cfg, session: requests.Session, ingest, market: str = "stocks"):
+        self.cfg = cfg
+        self.session = session
+        self.ingest = ingest
+        self.market = market
+
+    def run(self) -> int:
+        accounts = self.cfg.x_accounts(self.market)
+        items: list[dict] = []
+        errors = []
+        for acc in accounts:
+            url = self.cfg.x_rss_template.replace("{account}", acc)
+            try:
+                resp = fetch(self.session, url, timeout=20)
+                resp.raise_for_status()
+                items.extend(parse_x_rss(resp.content, acc))
+            except requests.RequestException as exc:
+                errors.append(f"{acc}: {exc.__class__.__name__}")
+        if errors and len(errors) == len(accounts):
+            raise RuntimeError("RSS-bron voor X geeft geen antwoord (" + "; ".join(errors[:3]) + ")")
         return self.ingest(items, trusted_authors={a.lower() for a in accounts})

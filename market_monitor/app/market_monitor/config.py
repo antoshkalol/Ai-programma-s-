@@ -86,12 +86,14 @@ class Config:
     blocked_domains: list[str] = field(default_factory=list)
     min_news_credibility: float = 0.45
     x_bearer_token: str = ""
+    x_rss_template: str = ""            # optioneel: RSS-bron voor X-posts, bv. https://nitter.example/{account}/rss
 
     # ---------------------------------------------------------------- Meldingen
     notify_service: str = ""            # leeg = automatisch alle telefoons met de HA-app; of bv. mobile_app_iphone
     notify_summaries: bool = True       # samenvatting elk uur als pushbericht
     quiet_hours: str = ""               # bv. "23-7": dan geen uurbericht (noodmeldingen komen wel)
     notify_recommendation_changes: bool = True  # popup als de aanbeveling wijzigt (stop, doel, omslag)
+    notify_holdings: bool = True        # melding wanneer je moet (deels) verkopen of een instapmoment is bereikt
     alerts_enabled: bool = True
     alert_sensitivity: str = "normaal"  # laag | normaal | hoog
     alert_critical: bool = True         # noodmelding doorbreekt stil/niet-storen (iOS critical, Android alarm)

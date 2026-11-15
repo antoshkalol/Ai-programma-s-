@@ -26,6 +26,13 @@ met een duidelijke splitsing tussen de twee (tabbladen *Aandelen* en *Crypto*).
   uurberichten door.
 - Een **kooplijst** met per aandeel of munt een score (0-100), een geschatte **kans op stijging** (~1 maand) en
   een **instapmoment**.
+- **Advies voor je eigen geld (nieuw in 0.7):**
+  - **Budgetplan:** vul je budget in en zie welke aandelen en munten het best zijn, voor hoeveel, wanneer je
+    instapt, hoe zeker het model is en wanneer je verkoopt.
+  - **Mijn posities:** geef aan wat je gekocht hebt en krijg een melding wanneer je moet (deels) verkopen.
+  - **Terugkijken:** klik op een eerdere aanbeveling en zie of je nu nog kunt instappen.
+
+  Zie [Advies voor je eigen geld](#advies-voor-je-eigen-geld).
 - **Zelfstandig handelen (nieuw in 0.6):** zet een budget klaar en laat het model 24/7 zelf kopen en verkopen via
   **Bitvavo** (crypto) en **Trading 212** (aandelen), met Claude als beslisser en harde risicogrenzen. Eerst oefenen
   met **paper trading** (nepgeld, echte koersen), tests vergelijken en de instellingen bijstellen. Zie
@@ -37,6 +44,8 @@ in de zijbalk.
 ![Aandelen (demodata met verzonnen namen)](docs/screenshot.png)
 
 ![Aanbeveling met technische analyse (demodata)](docs/screenshot-aanbeveling.png)
+
+![Budgetplan: wat het model met je budget zou doen (demodata)](docs/advies-budget.png)
 
 ![Trading: paper-tests, resultaten en logboek (demodata)](docs/trading-desktop.png)
 
@@ -164,12 +173,32 @@ De richting komt voor 60% uit de koopscore en voor 40% uit de technische stemmin
 | Rode / groene lijn | Stop-loss / koersdoelen |
 | Gekleurde kegel | Verwachte bandbreedte (±1σ) voor de komende ~20 dagen |
 | Gestippelde lijn met punt | Het scenario richting doel 1 en doel 2 |
+| Grijze lijn | SMA 200: de lange-termijntrend (vanaf 200 dagen koershistorie) |
+| Oranje stippellijnen | Fibonacci-niveaus van de laatste grote beweging (23,6% tot 78,6%) |
 | Strook onder de grafiek | RSI (boven 70 oververhit, onder 30 oversold) |
+| Tweede strook | MACD met histogram (momentum) |
 
-Daaronder staan de technische signalen (trend, MACD, RSI, Bollinger, steun/weerstand) en de redenen achter de
-koopscore. Met een API-sleutel geeft Claude elk uur commentaar: steunen nieuws en transacties de richting, en wat
+**Technische analyse in detail.** Onder de grafiek staat een scorekaart: elke indicator met de waarde, positief,
+negatief of neutraal, en een korte uitleg.
+
+| Basis (telt voor ¾ mee) | Uitgebreid (telt voor ¼ mee) |
+|---|---|
+| Koers t.o.v. het 50-daags gemiddelde | Koers t.o.v. het 200-daags gemiddelde |
+| SMA 20 t.o.v. SMA 50 | Golden cross / death cross (SMA 50 kruist SMA 200) |
+| Trendkanaal over 60 dagen (helling en R²) | EMA 9 / EMA 21 (korte-termijntrend) |
+| MACD en recente kruising | Stochastic (14,3) |
+| RSI (14) | RSI-divergentie (koers en RSI lopen uit elkaar) |
+| Positie in de Bollinger-band | Trendstructuur (hogere/lagere toppen en bodems) |
+| Steun en weerstand | Koersverandering 20 dagen |
+| | Afstand tot de jaarhoogste en -laagste koers |
+| | Bollinger-squeeze (rustige koers, vaak gevolgd door een grote beweging) |
+| | Dichtstbijzijnde Fibonacci-niveau |
+
+Er zijn alleen slotkoersen beschikbaar. Stochastic en de gemiddelde dagbeweging zijn daarom benaderingen.
+
+Daaronder staan de technische signalen en de redenen achter de koopscore. Met een API-sleutel geeft Claude elk uur commentaar: steunen nieuws en transacties de richting, en wat
 is het grootste risico? Eerdere aanbevelingen worden bewaard, met hun resultaat ("doel 1 gehaald",
-"stop geraakt" of "loopt").
+"stop geraakt" of "loopt"). Klik erop om ze terug te kijken (zie hieronder).
 
 De aanbeveling staat ook in het uurbericht op je telefoon en in de sensor
 `sensor.market_monitor_<markt>_recommendation`.
@@ -195,6 +224,93 @@ vers en voor aandelen elk kwartier tijdens beurstijd.
 
 > Shorten is riskanter dan kopen: je verlies kan groter zijn dan je inleg. Technische analyse is een
 > hulpmiddel, geen glazen bol. Gebruik altijd een stop-loss.
+
+---
+
+## Advies voor je eigen geld
+
+Op het tabblad **Aanbeveling** staan drie hulpmiddelen voor beleggen met je eigen geld. Je koopt en verkoopt zelf
+bij je broker; het programma zegt wat, wanneer en hoeveel.
+
+### Kan ik nu kopen?
+
+Elke aanbevelingskaart heeft een blok **Kan ik nu kopen? JA/NEE**, met de reden. Klik onder *Eerdere
+aanbevelingen* op een oude aanbeveling voor:
+- **het advies van toen:** instapzone, stop, doelen, overtuiging en signalen;
+- **wat er sindsdien gebeurde:** koers nu, je resultaat als je het advies had gevolgd, en of de stop of de doelen
+  geraakt zijn (met datum);
+- **het oordeel van nu:**
+
+| Oordeel | Betekenis |
+|---|---|
+| **Ja, kopen kan nu nog** | De koers ligt in de instapzone en de analyse wijst nog dezelfde kant op |
+| **Kopen kan, tegen een betere prijs** | Onder de instapzone, maar boven de stop (de stop is wel dichtbij) |
+| **Nog niet: wacht op een betere prijs** | Net boven de zone: zet een limietorder op de bovenkant van de zone |
+| **Niet najagen** | De koers is al te ver weg; het risico/rendement is slecht |
+| **Te laat: doel 1 al gehaald** | Instappen is najagen; wie al in zit neemt winst |
+| **Afgerond / verlopen** | Doel 2 gehaald, stop geraakt, of het plan is ouder dan 30 dagen |
+| **Niet meer kopen: de analyse is omgeslagen** | Techniek en koopscore wijzen nu de andere kant op |
+
+Je ziet ook de grafiek van nu met de niveaus van het oude advies erop, en de technische analyse van nu.
+
+![Terugkijken op een aanbeveling (demodata)](docs/advies-terugkijken.png)
+
+### Mijn posities: wanneer verkopen?
+
+Klik op **Ik heb dit gekocht** (bij een aanbeveling, in je budgetplan of via *Positie toevoegen*). Vul daarna het
+bedrag in euro en de aankoopkoers in. Stop-loss en doelen worden overgenomen uit het advies; je kunt ze aanpassen.
+Elke 2 minuten berekent de add-on wat je moet doen:
+
+| Advies | Wanneer | Melding |
+|---|---|---|
+| **Houden** | Koers tussen de stop en doel 1 | - |
+| **Deels verkopen** | Doel 1 gehaald: verkoop ~50%, de stop gaat naar je aankoopprijs plus kosten. De rest kan geen verlies meer worden. | Hoge prioriteit |
+| **Laten lopen** | Doel 2 gehaald terwijl het momentum nog sterk is: de rest loopt door met een **trailing stop**, die meeschuift met de hoogste koers (2x de gemiddelde dagbeweging eronder). Zo pak je zoveel mogelijk van de stijging mee. | Normaal |
+| **Verkopen** | Stop-loss of trailing stop geraakt, of doel 2 gehaald zonder momentum | Hoge prioriteit |
+| **Let op** | De analyse slaat om naar dalen, de koers is oververhit (RSI > 80) met mooie winst, negatief nieuws, of na 30 dagen is doel 1 nog niet gehaald | Hoge prioriteit bij omslag |
+
+Per positie zie je het ingelegde bedrag, de waarde nu, het resultaat in euro en procent, en een balk met stop,
+aankoop, doelen en de koers van nu. Klik op **Verkocht** als je verkocht hebt. Meldingen uitzetten kan met
+`notify_holdings: false`.
+
+![Mijn posities (demodata)](docs/advies-posities.png)
+
+### Budgetplan: wat doe je het best met je geld?
+
+Vul bij **Mijn budget** een bedrag in, kies een profiel en de markten, en klik op **Bereken plan**.
+
+| Profiel | Posities | Risico per positie | Max. per positie | Max. crypto | Min. in kas |
+|---|---|---|---|---|---|
+| Voorzichtig | 4 | 1% | 25% | 30% | 30% |
+| Normaal | 5 | 1,5% | 30% | 50% | 15% |
+| Offensief | 6 | 2,5% | 40% | 70% | 5% |
+
+Zo komt het plan tot stand (alleen kopen, geen short):
+1. **Kandidaten:** de sterkste aandelen en munten volgens de koopscore, elk met technische analyse en plan.
+2. **Filter:** alleen kansen met genoeg overtuiging, risico/rendement en een **positieve verwachte waarde na
+   kosten**: kans × winst tot doel 1 − (1 − kans) × verlies tot de stop − kosten.
+3. **Rangschikken** op verwachte waarde per euro risico.
+4. **Bedrag op basis van risico:** bij de stop verlies je per positie hooguit het risico van je profiel, dus een
+   ruime stop geeft een kleiner bedrag. Er gelden maxima per positie en voor crypto. Wat over is, blijft in kas.
+5. **Per positie:**
+   - wat en hoeveel (bedrag, aantal);
+   - **wanneer:** *nu kopen* als de koers in de instapzone ligt, anders een limietorder op de bovenkant van de zone;
+   - de **zekerheid:** 0-100, uit overtuiging en kans; hoog vanaf 70, gemiddeld vanaf 55;
+   - het **verkoopplan:** de helft bij doel 1, de rest bij doel 2 of de trailing stop, alles bij de stop;
+   - de onderbouwing: signalen, redenen en nieuws.
+6. **Totaal:**
+   - winst bij doel 1 en volgens plan;
+   - maximaal verlies als alle stops geraakt worden;
+   - verwachte waarde;
+   - een analyse in gewone taal.
+
+Wat niet gekozen is, staat er met de reden bij. Komt een positie met *koop bij terugval* later in de instapzone,
+dan krijg je een melding (**Instapmoment**). Met een AI-sleutel kun je het plan laten beoordelen door Claude: per
+positie eens/twijfel/oneens met onderbouwing, plus een totaaloordeel. Dat kost ongeveer $0,05-0,10 per keer met Opus
+5.5.
+
+> Zekerheid, kansen en verwachte waarde zijn modelinschattingen, geen garanties. Spreid, gebruik altijd de stop en
+> beleg alleen geld dat je kunt missen.
 
 ---
 
@@ -425,6 +541,8 @@ tests met verschillende instellingen kunt vergelijken.
 | `stock_price_api_key` | Optioneel: een gratis sleutel van [twelvedata.com](https://twelvedata.com) voor betrouwbare aandelenkoersen. Aanrader als de aandelen-aanbeveling of koersen ontbreken. |
 | `anthropic_model`, `anthropic_effort` | Het Claude-model en hoe grondig het nadenkt. Standaard `claude-opus-5-5` en `medium`. |
 | `summary_interval_minutes` | Hoe vaak de samenvatting komt; standaard 60. |
+| `notify_holdings` | Melding met hoge prioriteit als je een positie (deels) moet verkopen, en bij een instapmoment uit je budgetplan (standaard aan). |
+| `x_rss_template` | Optioneel alternatief voor X-posts zonder X API: een RSS-adres met `{account}`, bv. van een eigen RSS-bridge of Nitter-server. |
 | `allow_live_trading` | Hoofdschakelaar voor live handelen met echt geld (standaard uit: alleen paper trading). |
 | `bitvavo_api_key`, `bitvavo_api_secret` | Sleutel van Bitvavo, alleen met de rechten bekijken en handelen. |
 | `trading212_api_key`, `trading212_api_secret` | Sleutel van Trading 212 (Invest-account, demo of live). |
@@ -467,19 +585,30 @@ zetten.
 | Senaat (eFD) | Aandelen | Transacties van Senatoren | Tot 45 dagen | Gratis (voorwaarden: niet commercieel) |
 | Quiver Quantitative | Aandelen | Congres-transacties incl. partij | Idem | Betaald, optioneel |
 | Twelve Data / Yahoo Finance / Nasdaq / Stooq | Aandelen | Dagkoersen, in die volgorde (Twelve Data alleen met gratis sleutel) | Ongeveer 15 minuten | Gratis |
-| SEC full-text search (8-K) | Crypto | Bedrijven die BTC/ETH/SOL kopen of verkopen voor hun balans | Dagen | Gratis |
-| blockchain.info | Crypto | Grote bitcoin-transfers uit nieuwe blokken | Ongeveer 10 minuten | Gratis |
+| SEC full-text search (8-K) | Crypto | Bedrijven die BTC, ETH, SOL, XRP, BNB, DOGE, AVAX, SUI, HYPE of LTC kopen of verkopen voor hun balans (ook het tabelformaat van Strategy) | Dagen | Gratis |
+| blockchain.info | Crypto | Grote bitcoin-transfers uit nieuwe blokken, met het soort verplaatsing | Ongeveer 10 minuten | Gratis |
 | CoinGecko | Crypto | Koers, 1u/24u/7d-verandering, volume en marktwaarde van de top 100, plus koershistorie | Minuten | Gratis (optioneel gratis demo-sleutel) |
 | RSS-feeds | Beide | Aandelen: MarketWatch, WSJ, CNBC, BBC, FT, Fed, SEC, NOS. Crypto: CoinDesk, The Block, Blockworks, Decrypt, DL News e.a. | Minuten | Gratis |
 | Google News | Beide | Koppen van alle grote media, ook Reuters en Bloomberg | Minuten | Gratis |
 | GDELT | Beide | Monitort nieuws wereldwijd | Ongeveer 15 minuten | Gratis |
-| X API | Beide | Posts van accounts die jij kiest | Minuten | Betaald, optioneel |
+| X API of RSS-bron | Beide | Posts van accounts die jij kiest (filter *Posts op X* in het nieuwspaneel) | Minuten | X API betaald; RSS-bron optioneel |
 
 **Goed om te weten:**
 - Transacties van politici zie je nooit live. Het dashboard toont daarom bij elke transactie de **vertraging** in
   dagen.
-- Een grote crypto-transfer zegt niets over de richting. Vaak zijn het interne verschuivingen van beurzen. Die
-  transfers worden wel getoond, maar tellen niet mee in de score.
+- Een grote crypto-transfer zegt niets over de richting. Die transfers worden wel getoond, maar tellen niet mee
+  in de score. Aan de vorm van de transactie zie je wel wat voor soort verplaatsing het waarschijnlijk is:
+  - **Samenvoegen:** veel kleine bedragen gebundeld in één wallet, typisch voor een beurs of bewaarder.
+  - **Uitbetaling:** één wallet betaalt veel adressen tegelijk, typisch opnames bij een beurs.
+  - **Verplaatsing:** van wallet naar wallet. Dit kan een storting naar een beurs zijn (mogelijk verkoop) of een
+    opname naar eigen opslag (houden).
+
+  Echte aan- en verkopen in crypto komen uit de 8-K-meldingen van bedrijven en uit politici/insiders die
+  crypto-ETF's of -aandelen kopen. Bij de eerste start kijkt de add-on 60 dagen terug.
+- **X-posts:**
+  - Je hebt de betaalde X API nodig (`x_bearer_token`) of een eigen RSS-bron (`x_rss_template`).
+  - Zonder een van beide zijn er geen X-posts.
+  - Het filter *Posts op X* in het nieuwspaneel laat zien waarom niet.
 
 ---
 
@@ -531,6 +660,7 @@ maanden draaien), wordt de kans **gekalibreerd** op die echte resultaten.
 | `sensor.market_monitor_stocks_recommendation` / `..._crypto_recommendation` | Bijv. `LONG NVDA` of `AFWACHTEN (BTC)` | `entry_low`, `entry_high`, `stop`, `target1`, `target2`, `rr`, `prob`, `conviction`, `signals` |
 | `sensor.market_monitor_alert` | Laatste noodmelding | `market`, `asset`, `kind`, `message`, `ai_note` |
 | `sensor.market_monitor_status` | `ok` of `fout` | `bronnen_met_fouten` |
+| `sensor.market_monitor_holdings` | Waarde van je posities in euro | `ingelegd_eur`, `resultaat_eur`, `resultaat_pct`, `posities` (met advies) |
 | `sensor.market_monitor_trading` | Vermogen van de live-run in euro, of `geen live-run` | `live_resultaat_pct`, `live_open_posities`, `runs` |
 
 ### Events
@@ -641,7 +771,9 @@ market_monitor/                 de add-on
     filtering.py                nieuwsfilter (betrouwbaarheid, clickbait, bevestiging)
     tickers.py, sentiment.py    aandelen en munten herkennen, sentiment
     scoring.py                  koopscore aandelen en crypto, kans, instapmoment, kalibratie
-    technical.py, recommend.py  technische analyse en aanbeveling (long/short, instap, stop, doelen)
+    technical.py, recommend.py  technische analyse (met scorekaart) en aanbeveling; terugkijken + koop-nu-oordeel
+    portfolio.py                mijn posities: verkoopadvies, trailing stop en meldingen
+    planner.py                  budgetplan: verdeling op risico, timing, zekerheid, instapmeldingen
     summary.py                  samenvatting per markt (Claude of automatisch)
     alerts.py                   noodmeldingen (detectoren, afkoelperiode, daglimiet, AI-controle)
     hass.py                     sensoren, events en popup-meldingen naar je telefoon

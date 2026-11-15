@@ -27,6 +27,13 @@ COINS = {
     "BTC": (r"bitcoins?|BTC", '"acquired" "bitcoin"'),
     "ETH": (r"ETH|ether(?:eum)?", '"acquired" "ETH"'),
     "SOL": (r"SOL|solana", '"acquired" "SOL"'),
+    "XRP": (r"XRP", '"acquired" "XRP"'),
+    "BNB": (r"BNB", '"acquired" "BNB"'),
+    "DOGE": (r"DOGE|dogecoins?", '"acquired" "dogecoin"'),
+    "AVAX": (r"AVAX", '"acquired" "AVAX"'),
+    "SUI": (r"SUI", '"acquired" "SUI tokens"'),
+    "HYPE": (r"HYPE", '"acquired" "HYPE tokens"'),
+    "LTC": (r"LTC|litecoins?", '"acquired" "litecoin"'),
 }
 TAG_RE = re.compile(r"<[^>]+>")
 NAME_RE = re.compile(r"^(.*?)\s*(?:\(([A-Z.\-, ]+)\))?\s*\(CIK \d+\)\s*$")
@@ -68,6 +75,24 @@ def parse_amounts(text: str, coin: str) -> list[dict]:
     return found
 
 
+def parse_table(text: str, coin: str) -> list[dict]:
+    """Tabelvorm (o.a. Strategy sinds 2025): 'BTC Acquired | Aggregate Purchase Price (in millions) | ...'
+    gevolgd door de waarden, bv. '1,955 $ 217.4 ...'."""
+    pattern = re.compile(
+        coin + r"\s+(?:Acquired|Purchased)\b.{0,200}?Aggregate\s+Purchase\s+Price\s*\(in\s+(millions|billions)\)"
+        r".{0,400}?(?<![\d,.])(\d[\d,]*(?:\.\d+)?)\s+\$\s?([\d,]+(?:\.\d+)?)",
+        re.I | re.S,
+    )
+    m = pattern.search(text)
+    if not m:
+        return []
+    qty = float(m.group(2).replace(",", ""))
+    value = float(m.group(3).replace(",", "")) * (1e6 if m.group(1).lower() == "millions" else 1e9)
+    if qty <= 0:
+        return []
+    return [{"side": "buy", "qty": qty, "value": value}]
+
+
 def parse_hits(data: dict) -> list[dict]:
     out = []
     for h in (data.get("hits") or {}).get("hits", []) or []:
@@ -96,8 +121,9 @@ def parse_hits(data: dict) -> list[dict]:
 
 class SecTreasurySource:
     name = "crypto_treasury"
-    MAX_DOCS_PER_RUN = 10
+    MAX_DOCS_PER_RUN = 12
     LOOKBACK_DAYS = 10
+    FIRST_LOOKBACK_DAYS = 60     # eerste keer verder terugkijken, zodat de lijst niet leeg begint
 
     def __init__(self, cfg, db: Database, session: requests.Session):
         self.cfg = cfg
@@ -110,7 +136,8 @@ class SecTreasurySource:
 
     def run(self) -> int:
         end = utcnow()
-        start = (end - timedelta(days=self.LOOKBACK_DAYS)).strftime("%Y-%m-%d")
+        first = not self.db.get_state("treasury_initialized")
+        start = (end - timedelta(days=self.FIRST_LOOKBACK_DAYS if first else self.LOOKBACK_DAYS)).strftime("%Y-%m-%d")
         todo: dict[tuple[str, str], tuple[dict, str]] = {}
         for coin, (_, query) in COINS.items():
             url = SEARCH.format(q=quote(query), start=start, end=end.strftime("%Y-%m-%d"))
@@ -131,7 +158,8 @@ class SecTreasurySource:
             except requests.RequestException as exc:
                 log.info("8-K %s niet opgehaald: %s", adsh, exc)
                 continue
-            amounts = parse_amounts(html_to_text(doc.text), coin)
+            text = html_to_text(doc.text)
+            amounts = parse_amounts(text, coin) or parse_table(text, coin)
             trades = []
             for i, a in enumerate(amounts[:3]):
                 trades.append(
@@ -159,4 +187,6 @@ class SecTreasurySource:
                 )
             inserted += len(self.db.insert_trades(trades))
             self.db.mark_seen(seen_key)
+        if first:
+            self.db.set_state("treasury_initialized", True)
         return inserted

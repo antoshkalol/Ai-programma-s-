@@ -2,6 +2,12 @@
 
 Let op: een grote transfer zegt niet wie koopt of verkoopt. Vaak zijn het interne verschuivingen van
 beurzen. Daarom tonen we ze wel, maar tellen ze niet mee in de koopscore.
+
+Aan de vorm van de transactie zie je wel wat voor soort verplaatsing het waarschijnlijk is:
+  * samenvoegen (consolidatie): veel inputs -> 1-2 outputs; typisch een beurs of bewaarder die kleine bedragen bundelt
+  * uitbetaling in bulk: veel outputs; typisch opnames van klanten bij een beurs
+  * verplaatsing: 1-2 inputs -> 1-2 outputs; van wallet naar wallet (storting naar een beurs = mogelijk verkoop,
+    opname naar eigen opslag = houden; zonder adreslabels is de richting niet te zien)
 """
 
 from __future__ import annotations
@@ -28,6 +34,26 @@ def short_addr(addr: str | None) -> str:
     return addr if len(addr) <= 14 else f"{addr[:6]}...{addr[-4:]}"
 
 
+KINDS = {
+    "consolidatie": ("Samenvoegen", "veel kleine bedragen gebundeld in één wallet, typisch voor een beurs of "
+                     "bewaarder (geen koop of verkoop)"),
+    "bulk-uitbetaling": ("Uitbetaling", "één wallet betaalt veel adressen tegelijk, typisch voor opnames bij een beurs"),
+    "verplaatsing": ("Verplaatsing", "van wallet naar wallet; kan een storting naar een beurs (mogelijk verkoop) of "
+                     "een opname naar eigen opslag (houden) zijn"),
+    "transfer": ("Transfer", "grote verplaatsing; richting onbekend"),
+}
+
+
+def classify(n_in: int, n_out: int) -> str:
+    if n_in >= 10 and n_out <= 2:
+        return "consolidatie"
+    if n_out >= 10:
+        return "bulk-uitbetaling"
+    if n_in <= 2 and n_out <= 2:
+        return "verplaatsing"
+    return "transfer"
+
+
 def whale_transfers(block: dict, min_btc: float) -> list[dict]:
     """Transacties waarbij minstens min_btc naar andere adressen gaat dan de afzenders (wisselgeld telt niet)."""
     out = []
@@ -50,6 +76,7 @@ def whale_transfers(block: dict, min_btc: float) -> list[dict]:
                 "to": short_addr(biggest.get("addr")),
                 "n_in": len(inputs),
                 "n_out": len(tx.get("out", [])),
+                "kind": classify(len(inputs), len(tx.get("out", []))),
                 "time": tx.get("time") or ts,
             }
         )
@@ -107,7 +134,7 @@ class BtcWhaleSource:
                         "company": f"naar {w['to']}",
                         "asset_type": "on-chain transfer",
                         "tx_type": "other",
-                        "tx_code": "transfer",
+                        "tx_code": w["kind"],
                         "shares": w["btc"],
                         "price": price,
                         "value_usd": round(w["btc"] * price, 2),
@@ -116,7 +143,7 @@ class BtcWhaleSource:
                         "tx_date": when.strftime("%Y-%m-%d") if when else None,
                         "filed_at": iso(when) if when else None,
                         "url": f"https://mempool.space/tx/{w['hash']}",
-                        "note": f"{fmt_num(w['btc'])} BTC verplaatst; richting onbekend (vaak beurs-intern)",
+                        "note": f"{fmt_num(w['btc'])} BTC: {KINDS[w['kind']][0].lower()}, {KINDS[w['kind']][1]}",
                     }
                 )
         self.db.set_state("btc_last_height", info["height"])

@@ -187,6 +187,33 @@ CREATE TABLE IF NOT EXISTS state (
     value TEXT
 );
 
+CREATE TABLE IF NOT EXISTS user_holdings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    market TEXT NOT NULL,
+    ticker TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',   -- open | closed
+    qty REAL NOT NULL,
+    entry_price REAL NOT NULL,     -- aankoopkoers in dollar (zoals in het dashboard)
+    amount_eur REAL NOT NULL,      -- ingelegd bedrag in euro
+    fx REAL,                       -- dollars per euro bij aankoop
+    bought_at TEXT NOT NULL,
+    source TEXT,                   -- aanbeveling | budgetplan | handmatig
+    rec_id INTEGER,
+    stop REAL,
+    target1 REAL,
+    target2 REAL,
+    atr REAL,
+    high_water REAL,
+    t1_done INTEGER DEFAULT 0,
+    trail_stop REAL,
+    closed_at TEXT,
+    exit_price REAL,
+    note TEXT,
+    advice TEXT,                   -- laatste advies (JSON)
+    notified TEXT DEFAULT '{}',    -- verstuurde meldingen (JSON: gebeurtenis -> tijd)
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS trading_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -341,13 +368,13 @@ class Database:
             saved: list = []
             if version < SCHEMA_VERSION:
                 # De database is een cache van openbare data: bij een nieuwe versie bouwen we hem opnieuw op,
-                # behalve de handelsadministratie (trading_*) en de handelsinstellingen: die zijn van jou.
+                # behalve jouw eigen gegevens: posities en budget (user_*) en de handelsadministratie (trading_*).
                 tables = [r[0] for r in self.conn.execute(
                     "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-                    " AND name NOT LIKE 'trading_%'")]
+                    " AND name NOT LIKE 'trading_%' AND name NOT LIKE 'user_%'")]
                 if "state" in tables:
                     saved = [tuple(r) for r in self.conn.execute(
-                        "SELECT key, value FROM state WHERE key LIKE 'trading_%'")]
+                        "SELECT key, value FROM state WHERE key LIKE 'trading_%' OR key LIKE 'user_%'")]
                 for t in tables:
                     self.conn.execute(f'DROP TABLE IF EXISTS "{t}"')
             self.conn.executescript(SCHEMA)

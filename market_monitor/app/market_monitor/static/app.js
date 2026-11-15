@@ -117,7 +117,8 @@
     return d && !isNaN(d) ? d.toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" }) : "";
   }
   const ACTION = { buy: "Koop", sell: "Verkoop", other: "Melding" };
-  const actionLabel = (t) => (t.actor_type === "whale" ? "Transfer" : ACTION[t.tx_type] || t.tx_type);
+  const WHALE = { consolidatie: "Samenvoegen", "bulk-uitbetaling": "Uitbetaling", verplaatsing: "Verplaatsing", transfer: "Transfer" };
+  const actionLabel = (t) => (t.actor_type === "whale" ? (WHALE[t.tx_code] || "Transfer") : ACTION[t.tx_type] || t.tx_type);
   const MOOD = { positief: "pos", negatief: "neg", neutraal: "mid", gemengd: "mid" };
   const JOB_NAMES = {
     sec_form4: "SEC insiders", house: "Huis (VS)", senate: "Senaat (VS)", quiver: "Quiver",
@@ -243,7 +244,7 @@
           el("td", null, el("span", { class: "who", text: t.actor_name }), ...tags,
             el("span", { class: "role", text: " " + (t.actor_role || "") })),
           el("td", null, tickerCell, el("span", { class: "company", title: t.company || "", text: t.company || t.note || "" })),
-          el("td", null, el("span", { class: "act " + t.tx_type, text: actionLabel(t) }),
+          el("td", { title: t.actor_type === "whale" ? (t.note || "") : null }, el("span", { class: "act " + t.tx_type, text: actionLabel(t) }),
             el("span", { class: "m-amount", text: fmtAmount(t) })),
           el("td", { class: "num" }, t.url ? el("a", { href: t.url, target: "_blank", rel: "noopener", text: fmtAmount(t) }) : fmtAmount(t)),
           el("td", { class: "num" + (delay > 20 ? " late" : "") }, delay === null || delay === undefined ? "-" : delay + " d"),
@@ -254,10 +255,19 @@
 
   // ------------------------------------------------------------------ news
   async function loadNews() {
-    const rows = await api(q(`news?junk=${state.junk}&limit=150`));
+    const posts = state.junk === "post";
+    const rows = await api(q(posts ? "news?junk=0&kind=post&limit=150" : `news?junk=${state.junk}&limit=150`));
     const list = $("news-list");
     clear(list);
     $("news-empty").hidden = rows.length > 0;
+    const status = $("news-social");
+    status.hidden = !posts;
+    if (posts) {
+      api(q("social")).then((st) => {
+        status.textContent = st.message + (st.accounts && st.accounts.length ? " Gevolgde accounts: @" + st.accounts.join(", @") + "." : "");
+        status.className = "news-social " + (st.token || st.rss ? (st.errors.length ? "bad" : "good") : "bad");
+      }).catch(() => {});
+    }
     rows.forEach((n) => {
       const c = n.credibility || 0;
       const meter = el("span", { class: "meter", title: "Geloofwaardigheid " + Math.round(c * 100) + "%" }, el("span"));
@@ -634,6 +644,7 @@
   });
 
   async function loadRecommendations() {
+    if (window.MMAdvice) window.MMAdvice.refresh().catch(console.error);
     const markets = state.markets.length ? state.markets : ["stocks", "crypto"];
     ["stocks", "crypto"].forEach((m) => { $("rec-" + m).hidden = !markets.includes(m); });
     await Promise.all(markets.map(async (m) => {
@@ -725,6 +736,13 @@
     const stCls = { in_zone: "good", target1: "good", target2: "good", stop: "bad", above_zone: "warn", below_zone: "warn" }[st.code] || "neutral";
     const stIco = { in_zone: "\u2713", target1: "\u2713", target2: "\u2713", stop: "\u2715", above_zone: "!", below_zone: "!" }[st.code] || "\u2013";
     body.appendChild(el("div", { class: "rec-status " + stCls }, el("span", { class: "ico", text: stIco }), el("span", { text: st.text || "" })));
+    if (d.verdict && window.MMAdvice) {
+      const cur = (d.history || []).find((h) => !h.closed_at && h.ticker === rec.ticker);
+      body.appendChild(window.MMAdvice.verdictBox(d.verdict, p.direction === "long" ? {
+        market, ticker: rec.ticker, price: p.price, rec_id: cur ? cur.id : null, source: "aanbeveling",
+        levels: { stop: p.stop, target1: p.target1, target2: p.target2, atr: p.atr },
+      } : null));
+    }
     const metaParts = [p.action];
     if (rec.since) metaParts.push("plan sinds " + fmtDate(rec.since, true) + (rec.issued_price ? " bij " + fmtPrice(rec.issued_price, cur) : ""));
     if (rec.updated_at) metaParts.push("gecontroleerd " + fmtTime(rec.updated_at));
@@ -761,6 +779,8 @@
       el("span", null, el("span", { class: "key", style: "background: var(--series-1)" }), "Koers"),
       el("span", null, el("span", { class: "key", style: "background: var(--series-3)" }), "SMA 20"),
       el("span", null, el("span", { class: "key", style: "background: var(--series-2)" }), "SMA 50"),
+      rec.chart.sma200 && rec.chart.sma200.length ? el("span", null, el("span", { class: "key", style: "background: var(--text-2)" }), "SMA 200") : null,
+      rec.chart.fib && rec.chart.fib.length ? el("span", null, el("span", { class: "key dash", style: "color: var(--warning)" }), "Fibonacci") : null,
       el("span", null, el("span", { class: "key band", style: "background: color-mix(in srgb, var(--muted) 22%, transparent)" }), "Bollinger-band"),
       el("span", null, el("span", { class: "key dash", style: "color: var(--muted)" }), "Trendkanaal"),
       el("span", null, el("span", { class: "key", style: "background: var(--axis)" }), "Steun / weerstand"),
@@ -773,6 +793,12 @@
     const rsiBox = el("div", { class: "ta-chart" });
     body.appendChild(rsiBox);
     rsiBox.appendChild(rsiChart(rec, cw));
+    if (rec.chart.macd && rec.chart.macd.length) {
+      const macdBox = el("div", { class: "ta-chart" });
+      body.appendChild(macdBox);
+      macdBox.appendChild(macdChart(rec, cw));
+    }
+    if (p.indicators && p.indicators.length) body.appendChild(taScorecard(p));
 
     const cols = el("div", { class: "rec-cols" });
     cols.appendChild(el("div", null, el("h3", { text: "Technische signalen" }),
@@ -789,14 +815,18 @@
 
     if (d.history && d.history.length) {
       body.appendChild(el("h3", { text: "Eerdere aanbevelingen" }));
-      body.appendChild(el("ul", { class: "plain" }, d.history.map((h) => {
+      body.appendChild(el("p", { class: "sub hist-help", text: "Klik op een aanbeveling voor het advies van toen en of je nu nog kunt instappen." }));
+      body.appendChild(el("ul", { class: "plain hist-list" }, d.history.map((h) => {
         const dd = DIR[h.direction] || DIR.neutral;
         const ret = h.return_pct;
-        return el("li", null,
-          fmtDate(h.created_at, true) + " · ",
+        const btn = el("button", { type: "button", class: "hist-item", "aria-label": "Bekijk aanbeveling " + h.ticker + " van " + fmtDate(h.created_at, true) },
+          el("span", { class: "hist-date", text: fmtDate(h.created_at, true) }),
           el("strong", { text: dd.text.split(" ")[0] + " " + h.ticker }),
-          " · " + h.status,
-          ret !== null && ret !== undefined ? el("span", { class: "hist-ret " + (ret >= 0 ? "pos" : "neg"), text: " " + fmtPct(ret) + (h.direction === "short" ? " (short)" : "") }) : null);
+          el("span", { class: "hist-status", text: h.status }),
+          ret !== null && ret !== undefined ? el("span", { class: "hist-ret " + (ret >= 0 ? "pos" : "neg"), text: fmtPct(ret) + (h.direction === "short" ? " (short)" : "") }) : null,
+          el("span", { class: "hist-go", "aria-hidden": "true", text: "Bekijk \u203A" }));
+        btn.addEventListener("click", () => window.MMAdvice && window.MMAdvice.openReview(h.id));
+        return el("li", null, btn);
       })));
     }
     body.appendChild(el("p", { class: "rec-note", text: "Schets op basis van technische analyse en het scoremodel, geen beleggingsadvies. Short gaan = inzetten op een daling (via CFD's, futures of short-ETF's); je verlies kan groter zijn dan je inleg. Gebruik altijd een stop-loss en beleg niet met geld dat je niet kunt missen." }));
@@ -901,6 +931,14 @@
     // koers + gemiddelden
     const closePts = c.close.map((v, i) => [i, v]);
     add("path", { d: "M" + x(0) + "," + (H - m.b) + " " + closePts.map((pt) => "L" + x(pt[0]).toFixed(1) + "," + y(pt[1]).toFixed(1)).join(" ") + " L" + x(n - 1) + "," + (H - m.b) + " Z", fill: "var(--series-1)", "fill-opacity": 0.08, stroke: "none" });
+    if (c.fib && c.fib.length) {
+      c.fib.forEach((f) => {
+        if (f.price < lo || f.price > hi) return;
+        add("line", { x1: m.l, x2: nowX, y1: y(f.price), y2: y(f.price), stroke: "var(--warning)", "stroke-width": 1, "stroke-dasharray": "1 4", "stroke-opacity": 0.9 });
+        if (!compact) labels.push({ v: f.price, text: "Fib " + nf1.format(f.ratio * 100) + "%", prio: 4 });
+      });
+    }
+    if (c.sma200 && c.sma200.length) line(c.sma200.map((v, i) => [i, v]), { stroke: "var(--text-2)", "stroke-width": 1.5 });
     line(c.sma50.map((v, i) => [i, v]), { stroke: "var(--series-2)", "stroke-width": 2 });
     line(c.sma20.map((v, i) => [i, v]), { stroke: "var(--series-3)", "stroke-width": 2 });
     line(closePts, { stroke: "var(--series-1)", "stroke-width": 2 });
@@ -959,6 +997,7 @@
         row("var(--series-1)", fmtPrice(c.close[i], cur), "koers")];
       if (ok(c.sma20[i])) rows.push(row("var(--series-3)", fmtPrice(c.sma20[i], cur), "SMA 20"));
       if (ok(c.sma50[i])) rows.push(row("var(--series-2)", fmtPrice(c.sma50[i], cur), "SMA 50"));
+      if (c.sma200 && ok(c.sma200[i])) rows.push(row("var(--text-2)", fmtPrice(c.sma200[i], cur), "SMA 200"));
       if (ok(c.rsi[i])) rows.push(el("div", { class: "row" }, el("strong", { text: nf0.format(c.rsi[i]) }), el("span", { class: "muted", text: "RSI" })));
       showTip(cx, cy, rows);
     };
@@ -1006,6 +1045,62 @@
       t.textContent = "RSI " + nf0.format(last[1]);
     }
     return root;
+  }
+
+  function macdChart(rec, width) {
+    const c = rec.chart, n = c.close.length, h = c.future_dates.length, total = n - 1 + h;
+    const W = Math.max(300, Math.round(width || 760));
+    const compact = W < 560;
+    const H = compact ? 70 : 90;
+    const m = compact ? { l: 42, r: 70, t: 8, b: 10 } : { l: 52, r: 96, t: 8, b: 12 };
+    const x = (i) => m.l + (i / total) * (W - m.l - m.r);
+    const vals = c.macd.concat(c.macd_signal, c.macd_hist).filter((v) => v !== null && !isNaN(v));
+    const ext = Math.max(...vals.map(Math.abs)) || 1;
+    const y = (v) => m.t + (1 - (v + ext) / (2 * ext)) * (H - m.t - m.b);
+    const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: "img", "aria-label": "MACD (12, 26, 9)" });
+    const add = (tag, attrs) => { const e = svg(tag, attrs); root.appendChild(e); return e; };
+    add("line", { x1: m.l, x2: x(n - 1), y1: y(0), y2: y(0), stroke: "var(--axis)", "stroke-width": 1 });
+    const bw = Math.max(1, (W - m.l - m.r) / total * 0.7);
+    c.macd_hist.forEach((v, i) => {
+      if (v === null || isNaN(v)) return;
+      add("rect", { x: x(i) - bw / 2, y: Math.min(y(v), y(0)), width: bw, height: Math.max(0.5, Math.abs(y(v) - y(0))), fill: v >= 0 ? "var(--pos)" : "var(--neg)", "fill-opacity": 0.45 });
+    });
+    const path = (arr, stroke) => add("path", { d: arr.map((v, i) => (i ? "L" : "M") + x(i).toFixed(1) + "," + y(v).toFixed(1)).join(" "), fill: "none", stroke, "stroke-width": 1.5 });
+    path(c.macd, "var(--series-1)");
+    path(c.macd_signal, "var(--series-2)");
+    const t = add("text", { x: W - m.r + 12, y: m.t + 12, class: "lvl-label strong" });
+    t.textContent = "MACD";
+    const t2 = add("text", { x: W - m.r + 12, y: m.t + 26, class: "axis-label" });
+    t2.textContent = c.macd_hist[c.macd_hist.length - 1] >= 0 ? "positief" : "negatief";
+    return root;
+  }
+
+  function taScorecard(p) {
+    const items = p.indicators;
+    const count = (sg) => items.filter((i) => i.signal === sg).length;
+    const wrap = el("div", { class: "ta-score" });
+    const head = el("div", { class: "ta-score-head" },
+      el("h3", { text: "Technische analyse in detail" }),
+      el("span", { class: "ta-score-sum" },
+        el("span", { class: "sig positief", text: count("positief") + " positief" }),
+        el("span", { class: "sig negatief", text: count("negatief") + " negatief" }),
+        el("span", { class: "sig neutraal", text: (count("neutraal") + count("let op")) + " neutraal" }),
+        el("span", { class: "sub", text: " · technische stemming " + (p.ta_score > 0 ? "+" : "") + nf2.format(p.ta_score) + " (-1 tot +1)" })));
+    wrap.appendChild(head);
+    const table = el("table", { class: "tbl ta-table" });
+    const tb = el("tbody");
+    [["Basis", items.filter((i) => i.core)], ["Uitgebreid", items.filter((i) => !i.core)]].forEach(([label, rows]) => {
+      if (!rows.length) return;
+      tb.appendChild(el("tr", { class: "group" }, el("th", { colspan: "3", text: label })));
+      rows.forEach((i) => tb.appendChild(el("tr", null,
+        el("td", null, el("strong", { text: i.name }), el("div", { class: "sub", text: i.text })),
+        el("td", { class: "num", text: i.value }),
+        el("td", null, el("span", { class: "sig " + i.signal.replace(" ", "-"), text: i.signal })))));
+    });
+    table.appendChild(tb);
+    wrap.appendChild(el("div", { class: "table-wrap" }, table));
+    wrap.appendChild(el("p", { class: "rec-note", text: "De basis telt voor driekwart mee in de technische stemming, de uitgebreide indicatoren voor een kwart. De stemming bepaalt samen met de koopscore (60/40) de richting. Alleen slotkoersen: stochastic en 'ATR' zijn benaderingen." }));
+    return wrap;
   }
 
   // ------------------------------------------------------------------ testmelding
@@ -1210,6 +1305,9 @@
     store("mm-theme", theme);
     applyTheme(theme);
   });
+
+  window.MM = { el, svg, clear, api, fmtPrice, fmtDate, fmtTime, timeAgo, parseTime, taChart, rsiChart, macdChart,
+    taScorecard, switchMarket, openDrawer, toast, nf0, nf1, nf2, DIR, TEXT, state, fmtPct };
 
   function refreshAll() {
     const jobs = state.view === "rec"

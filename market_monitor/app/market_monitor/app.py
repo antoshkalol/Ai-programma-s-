@@ -24,10 +24,13 @@ from .sources.quiver import QuiverSource
 from .sources.sec_form4 import SecForm4Source
 from .sources.sec_treasury import SecTreasurySource
 from .sources.senate import SenateSource
-from .sources.x_posts import XSource
+from .sources.x_posts import XRssSource, XSource
 from .summary import Summarizer
 from .tickers import TickerExtractor
+from .planner import BudgetPlanner
+from .portfolio import Holdings
 from .trading import TradingEngine
+from .trading.fx import FxRate
 
 log = logging.getLogger(__name__)
 
@@ -50,7 +53,10 @@ class MarketMonitor:
         self.summarizer = Summarizer(cfg, self.db, self.ingestor)
         self.hass = HomeAssistant(cfg, self.db)
         self.alerts = AlertEngine(cfg, self.db, self.hass, self.summarizer)
-        self.trading = TradingEngine(cfg, self.db, self.recommender, self.summarizer, self.hass, make_session())
+        self.fx = FxRate(self.db, make_session())
+        self.trading = TradingEngine(cfg, self.db, self.recommender, self.summarizer, self.hass, fx=self.fx)
+        self.holdings = Holdings(cfg, self.db, self.recommender, self.hass, self.fx)
+        self.planner = BudgetPlanner(cfg, self.db, self.recommender, self.summarizer, self.hass, self.fx)
         self.scheduler = Scheduler(self.db, workers=5)
         self.job_markets: dict[str, str] = {}
         self._register_jobs()
@@ -74,6 +80,9 @@ class MarketMonitor:
         if cfg.x_bearer_token and cfg.x_accounts(market):
             self._add(market, Job(f"x_{market}", XSource(cfg, self.db, s, ingest, market).run, 15 * MIN,
                                   initial_delay=30))
+        if "{account}" in cfg.x_rss_template and cfg.x_accounts(market):
+            self._add(market, Job(f"xrss_{market}", XRssSource(cfg, s, ingest, market).run, 15 * MIN,
+                                  initial_delay=40))
 
     def _register_jobs(self) -> None:
         cfg, db, s = self.cfg, self.db, self.session
@@ -98,7 +107,7 @@ class MarketMonitor:
         if cfg.enable_crypto:
             cg = make_session()
             self._add("crypto", Job("crypto_markets", CoinGeckoMarkets(cfg, db, cg).run, 3 * MIN, initial_delay=3))
-            history = CoinGeckoHistory(cfg, db, cg, self.scoring["crypto"].candidate_tickers)
+            history = CoinGeckoHistory(cfg, db, cg, self._crypto_history_tickers)
             self._add("crypto", Job("crypto_history", history.run, 3 * HOUR, initial_delay=45))
             if cfg.enable_crypto_treasury:
                 self._add("crypto", Job("crypto_treasury", self._trade_job(SecTreasurySource(cfg, db, make_session())),
@@ -114,6 +123,8 @@ class MarketMonitor:
         self._add("all", Job("recommend", self._recommend_job, 3 * MIN, initial_delay=160))
         if cfg.alerts_enabled:
             self._add("all", Job("alerts", self.alerts.run, 2 * MIN, initial_delay=4 * MIN))
+        # Mijn posities en budgetplan: verkoop- en instapmomenten bewaken
+        self._add("all", Job("holdings", self._holdings_job, 2 * MIN, initial_delay=180))
         # Handelsmotor: elke minuut (doet niets zolang er geen paper-test of live-run actief is)
         self._add("all", Job("trading", self.trading.tick, 1 * MIN, initial_delay=200))
         self._add("all", Job("calibration", self._calibrate, 24 * HOUR, initial_delay=10 * MIN))
@@ -128,8 +139,16 @@ class MarketMonitor:
         rows = self.db.query("SELECT ticker, score FROM scores_latest WHERE market='stocks'")
         rows.sort(key=lambda r: -abs(r["score"] - 50))
         out += [r["ticker"] for r in rows[:5]]
-        out = self.trading.priority_tickers("stocks") + out    # aandelen met een open positie eerst
+        out = self.holdings.tickers("stocks") + self.trading.priority_tickers("stocks") + out  # open posities eerst
         return list(dict.fromkeys(out))
+
+    def _crypto_history_tickers(self) -> list[str]:
+        """Koershistorie voor de kandidaten plus de munten die je zelf hebt (voor stops en doelen)."""
+        out = self.holdings.tickers("crypto") + list(self.scoring["crypto"].candidate_tickers())
+        return list(dict.fromkeys(out))
+
+    def _holdings_job(self) -> int:
+        return self.holdings.run() + self.planner.check_entries()
 
     def _trade_job(self, source):
         def run() -> int:

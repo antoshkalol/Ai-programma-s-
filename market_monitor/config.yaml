@@ -1,5 +1,5 @@
 name: Market Monitor
-version: "0.6.0"
+version: "0.7.0"
 slug: market_monitor
 description: >-
   Volgt grote transacties op de aandelen- en cryptomarkt (politici, insiders, bedrijven, walvissen),
@@ -29,6 +29,7 @@ options:
   notify_summaries: true
   quiet_hours: ""
   notify_recommendation_changes: true
+  notify_holdings: true
   alerts_enabled: true
   alert_sensitivity: normaal
   alert_critical: true
@@ -117,6 +118,7 @@ options:
   blocked_domains: []
   min_news_credibility: 0.45
   x_bearer_token: ""
+  x_rss_template: ""
   allow_live_trading: false
   bitvavo_api_key: ""
   bitvavo_api_secret: ""
@@ -130,6 +132,7 @@ schema:
   notify_summaries: bool
   quiet_hours: match(^(\d{1,2}-\d{1,2})?$)?
   notify_recommendation_changes: bool
+  notify_holdings: bool
   alerts_enabled: bool
   alert_sensitivity: list(laag|normaal|hoog)
   alert_critical: bool
@@ -178,6 +181,7 @@ schema:
     - str?
   min_news_credibility: float(0,1)
   x_bearer_token: password?
+  x_rss_template: str?
   allow_live_trading: bool
   bitvavo_api_key: password?
   bitvavo_api_secret: password?

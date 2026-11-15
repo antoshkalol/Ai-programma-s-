@@ -30,11 +30,11 @@ from ..net import fetch
 
 log = logging.getLogger(__name__)
 
-YAHOO = "https://{host}/v8/finance/chart/{sym}?range=6mo&interval=1d"
+YAHOO = "https://{host}/v8/finance/chart/{sym}?range=1y&interval=1d"
 NASDAQ = ("https://api.nasdaq.com/api/quote/{sym}/historical?assetclass={cls}&fromdate={start}"
           "&limit=400&todate={end}")
 STOOQ = "https://stooq.com/q/d/l/?s={sym}&i=d"
-TWELVE = "https://api.twelvedata.com/time_series?symbol={sym}&interval=1day&outputsize=150&apikey={key}"
+TWELVE = "https://api.twelvedata.com/time_series?symbol={sym}&interval=1day&outputsize=260&apikey={key}"
 BROWSER_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/126.0 Safari/537.36"
@@ -225,7 +225,7 @@ class PriceSource:
         if ticker.endswith(NON_US):
             return None
         end = utcnow().date()
-        start = end - timedelta(days=200)
+        start = end - timedelta(days=380)   # 1 jaar: genoeg voor het 200-daags gemiddelde
         headers = {**BROWSER_HEADERS, "Origin": "https://www.nasdaq.com", "Referer": "https://www.nasdaq.com/"}
         for cls in ("stocks", "etf"):
             resp = self._get("nasdaq", NASDAQ.format(sym=ticker.replace("-", "."), cls=cls, start=start, end=end),

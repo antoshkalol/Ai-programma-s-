@@ -20,11 +20,13 @@ import logging
 from datetime import timedelta
 
 from .db import Database, iso, parse_iso, utcnow
+from .scoring import fmt_price
 from .technical import build_plan
 
 log = logging.getLogger(__name__)
 
 MIN_HISTORY = 60
+PLAN_VALID_DAYS = 30        # een plan geldt ~20 koersdagen; daarna is het verlopen
 SWITCH_FACTOR = 1.3
 MIN_HOLD_MINUTES = 60
 REISSUE_HOURS = 24
@@ -64,7 +66,194 @@ def plan_status(rec: dict, price: float | None) -> dict:
     return {"code": "above_zone", "text": "Koers boven de instapzone: let goed op de stop-loss"}
 
 
-class Recommender:
+# --------------------------------------------------------------------------- terugkijken: is een plan nog geldig?
+def path_hits(direction: str, lv: dict, path: list[tuple[str, float]]) -> dict:
+    """Wanneer raakte de koers na het plan voor het eerst de stop, doel 1 en doel 2? 'first' = stop of doel 1."""
+    hits: dict = {"stop": None, "target1": None, "target2": None, "first": None}
+    if direction not in ("long", "short"):
+        return hits
+    sign = 1 if direction == "long" else -1
+    for day, c in path:
+        if c is None:
+            continue
+        if hits["stop"] is None and sign * (c - lv["stop"]) <= 0:
+            hits["stop"] = day
+            hits["first"] = hits["first"] or "stop"
+        if hits["target1"] is None and sign * (c - lv["target1"]) >= 0:
+            hits["target1"] = day
+            hits["first"] = hits["first"] or "target1"
+        if hits["target2"] is None and sign * (c - lv["target2"]) >= 0:
+            hits["target2"] = day
+    return hits
+
+
+def describe_fresh(fp: dict | None) -> str:
+    if not fp:
+        return "Er is nu geen technische analyse mogelijk (te weinig koersdata)."
+    if fp["direction"] == "neutral":
+        return "Huidige analyse: afwachten, er is nu geen duidelijke richting."
+    return (f"Huidige analyse: {fp['label']} (overtuiging {fp['conviction']}), instapzone "
+            f"{fmt_price(fp['entry_low'])} - {fmt_price(fp['entry_high'])}, stop {fmt_price(fp['stop'])}, "
+            f"doel 1 {fmt_price(fp['target1'])}.")
+
+
+def fresh_buy_now(fp: dict | None, price: float | None) -> bool:
+    return bool(fp and price and fp["direction"] in ("long", "short")
+                and plan_status(fp, price)["code"] == "in_zone")
+
+
+def buy_verdict(old: dict, price: float | None, hits: dict, fresh: dict | None, age_days: float,
+                current: bool = False) -> dict:
+    """Kan ik dit plan NU nog volgen? Geeft code, buy_now (ja/nee), titel, uitleg en de huidige analyse."""
+    fp = (fresh or {}).get("plan") if fresh else None
+    now_txt = describe_fresh(fp)
+    d = old.get("direction")
+
+    def out(code: str, buy, title: str, text: str) -> dict:
+        return {"code": code, "buy_now": buy, "title": title, "text": text, "fresh": now_txt}
+
+    if price is None:
+        return out("unknown", None, "Geen actuele koers", "Er is op dit moment geen koers bekend.")
+    if d not in ("long", "short") and current:
+        return out("neutral", False, "Nee: afwachten", "Er is nu geen duidelijke richting. Niet instappen; wacht op "
+                   "een nieuw signaal.")
+    if d not in ("long", "short"):
+        buy = fresh_buy_now(fp, price)
+        return out("neutral_then", buy, "Toen: afwachten",
+                   "Er was toen geen duidelijke richting. " + ("De huidige analyse geeft wel een instapmoment."
+                                                              if buy else "Ook nu is er geen instapmoment."))
+    lo, hi, stop, t1, t2 = old["entry_low"], old["entry_high"], old["stop"], old["target1"], old["target2"]
+    sign = 1 if d == "long" else -1
+    verb = "kopen" if d == "long" else "short gaan"
+    if hits.get("first") == "stop" or (current and sign * (price - stop) <= 0):
+        when = f" op {hits['stop']}" if hits.get("stop") else ""
+        return out("stopped", False, "Verlopen: stop-loss geraakt" + when,
+                   f"De koers kwam onder de stop van {fmt_price(stop)}. Dit plan geldt niet meer; niet meer {verb} "
+                   "op basis van dit advies.")
+    if hits.get("target2"):
+        return out("done", False, f"Afgerond: doel 2 gehaald op {hits['target2']}",
+                   f"Het koersdoel van {fmt_price(t2)} is al bereikt. Wie instapte heeft de winst kunnen pakken; nu "
+                   "instappen is te laat.")
+    if hits.get("target1") or old.get("target1_hit"):
+        when = f" op {hits['target1']}" if hits.get("target1") else ""
+        return out("late", False, "Te laat om in te stappen: doel 1 al gehaald" + when,
+                   f"De koers bereikte doel 1 ({fmt_price(t1)}). Instappen is nu najagen. Zit je er al in: neem (een "
+                   "deel van de) winst en zet je stop op de instapprijs.")
+    if fp and (fp["direction"] not in (d, "neutral") or (fp["direction"] == "neutral" and abs(fp["combined"]) < 0.1)):
+        return out("flipped", False, f"Niet meer {verb}: de analyse is omgeslagen",
+                   f"De richting is nu {fp['label'].lower()} in plaats van {old.get('label', d).lower()}.")
+    if age_days > PLAN_VALID_DAYS and not current:
+        return out("expired", fresh_buy_now(fp, price), f"Verlopen: het plan is {age_days:.0f} dagen oud",
+                   "Een plan geldt ongeveer een maand. Kijk naar de huidige analyse hieronder.")
+    atr = (fp or {}).get("atr") or abs(t1 - (lo + hi) / 2) / 3 or price * 0.02
+    zone = f"{fmt_price(lo)} - {fmt_price(hi)}"
+    if lo <= price <= hi:
+        return out("valid_now", True, f"Ja, {verb} kan nu nog",
+                   f"De koers ({fmt_price(price)}) ligt in de instapzone {zone}. Stop {fmt_price(stop)}, doel 1 "
+                   f"{fmt_price(t1)}, doel 2 {fmt_price(t2)}.")
+    beyond = (price - hi) if d == "long" else (lo - price)
+    if beyond > 0:
+        edge = hi if d == "long" else lo
+        if beyond <= atr:
+            return out("wait_pullback", False, "Nog niet: wacht op een betere prijs",
+                       f"De koers ({fmt_price(price)}) staat net {'boven' if d == 'long' else 'onder'} de instapzone. "
+                       f"Zet een limietorder op {fmt_price(edge)} of wacht tot de koers terugkomt in {zone}.")
+        return out("too_far", False, "Niet najagen: de koers is al te ver weg",
+                   f"De koers ({fmt_price(price)}) is al flink {'gestegen' if d == 'long' else 'gedaald'} sinds het "
+                   f"advies. Het risico/rendement is nu slecht. Wacht op een terugval naar {zone} of een nieuw plan.")
+    return out("valid_cheaper", True, f"{verb.capitalize()} kan, tegen een betere prijs, maar dicht bij de stop",
+               f"De koers ({fmt_price(price)}) staat {'onder' if d == 'long' else 'boven'} de instapzone maar nog "
+               f"{'boven' if d == 'long' else 'onder'} de stop ({fmt_price(stop)}). De kans/verhouding is beter, "
+               "maar de stop is dichtbij: let goed op.")
+
+
+class ReviewMixin:
+    """Terugkijken op aanbevelingen en het koop-nu-oordeel (onderdeel van Recommender)."""
+
+    def price_path(self, market: str, ticker: str, since: str, live: float | None) -> list[tuple[str, float]]:
+        rows = self.db.query("SELECT date, close FROM prices WHERE market=? AND ticker=? AND date >= ? ORDER BY date",
+                             (market, ticker, since[:10]))
+        path = [(r["date"], r["close"]) for r in rows]
+        if live is not None:
+            path.append((iso(utcnow())[:10], live))
+        return path
+
+    def live_price(self, market: str, ticker: str, fresh: dict | None) -> float | None:
+        if fresh:
+            return fresh["plan"]["price"]
+        meta = self.db.query_one("SELECT last_price FROM price_meta WHERE market=? AND ticker=?", (market, ticker))
+        return (meta or {}).get("last_price")
+
+    def verdict_current(self, market: str, rec: dict | None) -> dict | None:
+        """Koop-nu-oordeel voor de geldende aanbeveling (zelfde regels als bij oude aanbevelingen)."""
+        if not rec or "plan" not in rec:
+            return None
+        s = self.summary(market) or {}
+        price = rec["plan"]["price"]
+        old = {**rec["plan"], "target1_hit": s.get("target1_hit")}
+        if s.get("target1_hit"):
+            old["stop"] = s.get("stop", old["stop"])
+        hits = path_hits(old["direction"], old, self.price_path(market, rec["ticker"], s.get("since") or iso(utcnow()),
+                                                                price)) if old["direction"] != "neutral" else {}
+        fresh = {"plan": {**rec["plan"], **rec.get("fresh", {})}}
+        return buy_verdict(old, price, hits, fresh, 0, current=True)
+
+    def review(self, rec_id: int) -> dict | None:
+        """Een eerdere aanbeveling terugkijken: het plan toen, wat er sindsdien gebeurde en of het nu nog kan."""
+        row = self.db.query_one("SELECT * FROM recommendations WHERE id=?", (rec_id,))
+        if not row:
+            return None
+        old = json.loads(row["plan"]) if row.get("plan") else {}
+        market, ticker = row["market"], row["ticker"]
+        try:
+            fresh = self.plan_for(market, ticker)
+        except Exception:  # noqa: BLE001
+            fresh = None
+        price = self.live_price(market, ticker, fresh)
+        created = parse_iso(row["created_at"]) or utcnow()
+        age = (utcnow() - created).total_seconds() / 86400
+        hits = path_hits(row["direction"], old, self.price_path(market, ticker, row["created_at"], price)) \
+            if row["direction"] in ("long", "short") and old.get("stop") is not None else {}
+        verdict = buy_verdict(old, price, hits, fresh, age)
+        issued = old.get("issued_price") or row["price"]
+        entry = old.get("entry") or ((old.get("entry_low") or 0) + (old.get("entry_high") or 0)) / 2 or issued
+        change = (price / issued - 1) * 100 if price and issued else None
+        followed = None
+        if price and entry and row["direction"] == "long":
+            followed = (price / entry - 1) * 100
+        elif price and entry and row["direction"] == "short":
+            followed = (entry / price - 1) * 100
+        chart = None
+        if fresh:
+            # Grafiek van nu, met de niveaus van het oude plan erop
+            fp = fresh["plan"]
+            plan = {**fp, **{k: old.get(k) for k in ("direction", "entry_low", "entry_high", "stop", "target1",
+                                                      "target2") if old.get(k) is not None}}
+            if row["direction"] == "neutral":
+                plan["direction"] = "neutral"
+            chart = {"ticker": ticker, "currency": fresh.get("currency"), "plan": plan,
+                     "chart": {**fresh["chart"], "scenario": []}}
+        then = {k: old.get(k) for k in ("label", "direction", "action", "conviction", "entry_low", "entry_high",
+                                         "entry", "stop", "target1", "target2", "rr", "prob", "signals",
+                                         "change_reason")}
+        return {
+            "id": row["id"], "market": market, "ticker": ticker, "name": old.get("name") or (fresh or {}).get("name"),
+            "currency": (fresh or {}).get("currency") or "USD", "created_at": row["created_at"],
+            "closed_at": row.get("closed_at"), "outcome": row.get("outcome"), "issued_price": issued,
+            "age_days": round(age, 1), "then": then,
+            "now": {"price": price, "change_pct": round(change, 2) if change is not None else None,
+                    "followed_pct": round(followed, 2) if followed is not None else None, "hits": hits,
+                    "status": plan_status(old, price) if price and row["direction"] != "neutral" else None},
+            "verdict": verdict,
+            "fresh": ({k: fresh["plan"].get(k) for k in ("direction", "label", "conviction", "entry_low",
+                                                          "entry_high", "stop", "target1", "target2", "rr", "prob",
+                                                          "signals", "indicators", "ta_score", "price")}
+                      if fresh else None),
+            "chart": chart,
+        }
+
+
+class Recommender(ReviewMixin):
     def __init__(self, cfg, db: Database):
         self.cfg = cfg
         self.db = db
@@ -72,7 +261,7 @@ class Recommender:
     # ------------------------------------------------------------------ plan voor één ticker
     def plan_for(self, market: str, ticker: str, score_row: dict | None = None) -> dict | None:
         rows = self.db.query(
-            "SELECT date, close FROM prices WHERE market=? AND ticker=? ORDER BY date DESC LIMIT 200", (market, ticker)
+            "SELECT date, close FROM prices WHERE market=? AND ticker=? ORDER BY date DESC LIMIT 300", (market, ticker)
         )[::-1]
         if len(rows) < MIN_HISTORY:
             return None
@@ -112,11 +301,11 @@ class Recommender:
         rr = min(plan.get("rr") or 0, 3) / 3
         return plan["conviction"] * (0.7 + 0.3 * rr)
 
-    def candidates(self, market: str) -> list[dict]:
+    def candidates(self, market: str, limit: int = 12) -> list[dict]:
         rows = self.db.query("SELECT * FROM scores_latest WHERE market=?", (market,))
         rows.sort(key=lambda r: -abs(r["score"] - 50))
         plans = []
-        for r in rows[:12]:
+        for r in rows[:limit]:
             try:
                 p = self.plan_for(market, r["ticker"], r)
             except Exception as exc:  # noqa: BLE001 - één ticker met rare data mag de rest niet tegenhouden
@@ -318,9 +507,9 @@ class Recommender:
                     ret = (end / ref - 1) * 100
                 elif ref and end and r["direction"] == "short":
                     ret = (ref / end - 1) * 100
-                out.append({"ticker": r["ticker"], "direction": r["direction"], "created_at": r["created_at"],
-                            "closed_at": r["closed_at"], "price": r["price"], "entry": r["entry"], "now": end,
-                            "return_pct": round(ret, 2) if ret is not None else None,
+                out.append({"id": r["id"], "ticker": r["ticker"], "direction": r["direction"],
+                            "created_at": r["created_at"], "closed_at": r["closed_at"], "price": r["price"],
+                            "entry": r["entry"], "now": end, "return_pct": round(ret, 2) if ret is not None else None,
                             "status": r["outcome"] or "gesloten"})
                 continue
             closes = self.db.query(
@@ -351,7 +540,9 @@ class Recommender:
                         break
             else:
                 status = "geen positie"
-            out.append({"ticker": r["ticker"], "direction": r["direction"], "created_at": r["created_at"],
-                        "closed_at": None, "price": r["price"], "entry": r["entry"], "now": now_price,
-                        "return_pct": round(ret, 2) if ret is not None else None, "status": status})
+            out.append({"id": r["id"], "ticker": r["ticker"], "direction": r["direction"],
+                        "created_at": r["created_at"], "closed_at": None, "price": r["price"], "entry": r["entry"],
+                        "now": now_price, "return_pct": round(ret, 2) if ret is not None else None,
+                        "status": status})
         return out
+

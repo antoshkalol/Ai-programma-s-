@@ -17,6 +17,11 @@ configuration:
   notify_recommendation_changes:
     name: "Meldingen: popup als de aanbeveling wijzigt"
     description: Bij stop-loss geraakt, doel gehaald, omslag van de richting of een duidelijk sterkere kandidaat.
+  notify_holdings:
+    name: "Meldingen: verkoopmoment en instapmoment"
+    description: >-
+      Melding met hoge prioriteit als je een positie (deels) moet verkopen (stop-loss, doel 1, doel 2, trailing stop,
+      omslag) en als een positie uit je budgetplan in de instapzone komt.
   alerts_enabled:
     name: "Meldingen: noodmeldingen aan"
     description: Direct een alert als er iets groots aan lijkt te komen (koersexplosie, groot nieuws, insiders die samen kopen, ...).
@@ -111,6 +116,12 @@ configuration:
     description: Berichten daaronder worden weggefilterd. Hoger = strenger.
   x_bearer_token:
     name: X (Twitter) bearer token (optioneel, betaald)
+    description: Nodig voor X-posts via de officiële X API (betaald). Zonder token komen er geen X-posts binnen.
+  x_rss_template:
+    name: "X-posts via RSS (optioneel, gevorderd)"
+    description: >-
+      Alternatief zonder X API: een RSS-adres per account, met {account} op de plek van de gebruikersnaam, bv. van
+      een eigen RSS-bridge of Nitter-server. Werkt alleen zolang die dienst werkt.
   allow_live_trading:
     name: "Handelen: live handelen met echt geld toestaan"
     description: >-

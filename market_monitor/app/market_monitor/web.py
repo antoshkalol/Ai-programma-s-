@@ -15,6 +15,7 @@ from . import __version__
 from .config import MARKET_LABELS, MARKETS
 from .db import ago, iso, utcnow
 from .markets import crypto_proxies
+from .planner import PROFILES
 from .summary import latest_summary, trades_sql
 from .trading import settings as tsettings
 from .trading.brokers import BitvavoBroker, BrokerError, Trading212Broker
@@ -140,8 +141,13 @@ def create_app(monitor) -> Flask:
         junk = request.args.get("junk", "0") == "1"
         ticker = (request.args.get("ticker") or "").upper()
         limit = _int("limit", 120, 1, 500)
+        kind = request.args.get("kind", "all")
         sql = "SELECT * FROM news WHERE market=? AND is_junk=? AND published_at >= ?"
         args: list = [market, 1 if junk else 0, ago(hours=48)]
+        if kind == "post":
+            sql += " AND kind='post'"
+        elif kind == "news":
+            sql += " AND kind != 'post'"
         if ticker:
             sql += " AND tickers LIKE ?"
             args.append(f'%"{ticker}"%')
@@ -151,6 +157,27 @@ def create_app(monitor) -> Flask:
         for r in rows:
             r["tickers"] = json.loads(r["tickers"] or "[]")
         return jsonify(rows)
+
+    @app.get("/api/social")
+    def social_status():
+        """Waarom wel of geen X-posts: token, RSS-bron, laatste fout en aantal posts."""
+        market = _market()
+        jobs = {j["name"]: j for j in db.query("SELECT * FROM job_status WHERE name IN (?, ?)",
+                                               (f"x_{market}", f"xrss_{market}"))}
+        n = db.query_one("SELECT COUNT(*) n FROM news WHERE market=? AND kind='post' AND published_at >= ?",
+                         (market, ago(hours=48)))["n"]
+        has_token, has_rss = bool(cfg.x_bearer_token), "{account}" in cfg.x_rss_template
+        errors = [j["last_error"].split("Z ", 1)[-1] for j in jobs.values() if j.get("last_error")]
+        if not has_token and not has_rss:
+            msg = ("Er komen geen X-posts binnen: de X API is betaald en er is geen token ingevuld. Vul "
+                   "'x_bearer_token' in bij de add-on opties, of als alternatief 'x_rss_template' (een RSS-bron per "
+                   "account, bv. een eigen RSS-bridge).")
+        elif errors:
+            msg = "X-posts ophalen mislukt: " + "; ".join(errors)
+        else:
+            msg = f"{n} post(s) van de gevolgde accounts in de laatste 48 uur."
+        return jsonify({"token": has_token, "rss": has_rss, "posts_48h": n, "errors": errors, "message": msg,
+                        "accounts": cfg.x_accounts(market)})
 
     @app.get("/api/summaries")
     def summaries():
@@ -257,11 +284,119 @@ def create_app(monitor) -> Flask:
                                  (market, top["ticker"]))["n"]
                 fallback = {"top": top, "price_days": n, "price_error": (job or {}).get("last_error"),
                             "price_sources": db.get_state("price_sources") if market == "stocks" else None}
+        verdict = None
+        try:
+            verdict = monitor.recommender.verdict_current(market, rec)
+        except Exception as exc:  # noqa: BLE001 - het oordeel mag de kaart niet blokkeren
+            app.logger.warning("Koop-nu-oordeel mislukt: %s", exc)
         return jsonify({"market": market, "label": MARKET_LABELS[market], "recommendation": rec,
                         "fallback": fallback, "ai_comment": comment, "comment_method": s["method"] if s else None,
                         "overview": s["content"].get("overview") if s else None,
-                        "overview_at": s["created_at"] if s else None,
-                        "history": monitor.recommender.history(market)})
+                        "overview_at": s["created_at"] if s else None, "verdict": verdict,
+                        "history": monitor.recommender.history(market, limit=_int("history", 12, 1, 60))})
+
+    @app.get("/api/recommendation/review/<int:rec_id>")
+    def recommendation_review(rec_id: int):
+        r = monitor.recommender.review(rec_id)
+        if not r:
+            abort(404)
+        return jsonify(r)
+
+    # ------------------------------------------------------------------ mijn posities
+    def _body() -> dict:
+        data = request.get_json(silent=True)
+        return data if isinstance(data, dict) else {}
+
+    def _num(v):
+        if v in (None, ""):
+            return None
+        return float(str(v).replace("€", "").replace("$", "").replace(" ", "").replace(",", "."))
+
+    @app.get("/api/holdings")
+    def holdings_list():
+        rows = monitor.holdings.list("open")
+        closed = monitor.holdings.list("closed")[:20]
+        return jsonify({"open": rows, "closed": closed, "totals": monitor.holdings.totals(rows),
+                        "notify": cfg.notify_holdings})
+
+    @app.post("/api/holdings")
+    def holdings_add():
+        b = _body()
+        try:
+            levels = {k: _num(b.get(k)) for k in ("stop", "target1", "target2", "atr") if _num(b.get(k))}
+            h = monitor.holdings.add(b.get("market", ""), str(b.get("ticker", "")), _num(b.get("amount_eur")),
+                                     _num(b.get("price")), source=str(b.get("source") or "handmatig")[:20],
+                                     rec_id=int(b["rec_id"]) if b.get("rec_id") else None, levels=levels or None,
+                                     note=str(b.get("note") or ""))
+        except (TypeError, ValueError) as exc:
+            return jsonify({"ok": False, "message": str(exc)}), 400
+        return jsonify({"ok": True, "holding": h})
+
+    @app.post("/api/holdings/<int:hid>")
+    def holdings_update(hid: int):
+        try:
+            h = monitor.holdings.update(hid, _body())
+        except ValueError as exc:
+            return jsonify({"ok": False, "message": str(exc)}), 400
+        if not h:
+            abort(404)
+        return jsonify({"ok": True, "holding": h})
+
+    @app.post("/api/holdings/<int:hid>/close")
+    def holdings_close(hid: int):
+        try:
+            h = monitor.holdings.close(hid, _num(_body().get("price")))
+        except ValueError as exc:
+            return jsonify({"ok": False, "message": str(exc)}), 400
+        if not h:
+            abort(404)
+        return jsonify({"ok": True, "holding": h})
+
+    @app.post("/api/holdings/<int:hid>/delete")
+    def holdings_delete(hid: int):
+        if not monitor.holdings.delete(hid):
+            abort(404)
+        return jsonify({"ok": True})
+
+    @app.get("/api/tickers")
+    def tickers_known():
+        market = _market()
+        rows = db.query("SELECT s.ticker, m.name, m.last_price FROM scores_latest s LEFT JOIN price_meta m"
+                        " ON m.market=s.market AND m.ticker=s.ticker WHERE s.market=? ORDER BY s.ticker", (market,))
+        seen = {r["ticker"] for r in rows}
+        rows += [r for r in db.query("SELECT ticker, name, last_price FROM price_meta WHERE market=? AND last_price"
+                                     " IS NOT NULL ORDER BY ticker", (market,)) if r["ticker"] not in seen]
+        return jsonify(rows)
+
+    # ------------------------------------------------------------------ budgetplan
+    @app.get("/api/budget")
+    def budget_get():
+        st = monitor.planner.settings()
+        plan = monitor.planner.build() if st["amount"] > 0 else None
+        return jsonify({"settings": st, "plan": plan, "profiles": PROFILES, "ai_available": cfg.llm_enabled})
+
+    @app.post("/api/budget")
+    def budget_save():
+        b = _body()
+        try:
+            st = monitor.planner.save(b.get("amount"), b.get("profile", "normaal"), b.get("markets", "beide"),
+                                      bool(b.get("alerts", True)))
+        except ValueError as exc:
+            return jsonify({"ok": False, "message": str(exc)}), 400
+        return jsonify({"ok": True, "settings": st, "plan": monitor.planner.build()})
+
+    @app.post("/api/budget/ai")
+    def budget_ai():
+        plan = monitor.planner.build()
+        if not plan.get("ok") or not plan.get("items"):
+            return jsonify({"ok": False, "message": "Er is nog geen plan met posities om te beoordelen."}), 400
+        try:
+            review = monitor.planner.ai_review(plan)
+        except ValueError as exc:
+            return jsonify({"ok": False, "message": str(exc)}), 400
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"ok": False, "message": f"AI niet bereikbaar: {exc}"}), 502
+        return jsonify({"ok": True, "review": review})
 
     @app.post("/api/summary/now")
     def summary_now():

@@ -49,6 +49,38 @@ Je krijgt dan een popup (uitzetten met `notify_recommendation_changes: false`).
 
 Shorten is riskant; gebruik altijd een stop-loss.
 
+**Uitgebreide techniek:** onder de grafiek staat een scorekaart met zo'n 15 indicatoren, waaronder SMA 200, golden
+cross, EMA 9/21, stochastic, RSI-divergentie, trendstructuur en Fibonacci. Er is ook een MACD-strook.
+
+## Kan ik nu kopen? en eerdere aanbevelingen
+
+Elke aanbeveling heeft een blok **Kan ik nu kopen? JA/NEE** met de reden. Klik op een eerdere aanbeveling voor:
+- het advies van toen;
+- wat er sindsdien gebeurde (stop of doelen geraakt, je resultaat als je het volgde);
+- of je nu nog kunt instappen, met de grafiek van nu.
+
+## Mijn posities (wanneer verkopen?)
+
+Klik op **Ik heb dit gekocht** en vul het bedrag en de aankoopkoers in. Je krijgt een melding met hoge prioriteit
+als je moet verkopen:
+- **stop-loss:** verkopen;
+- **doel 1:** de helft verkopen, de stop gaat naar je aankoopprijs;
+- **doel 2:** verkopen, of laten lopen met een trailing stop als het momentum sterk is;
+- **trailing stop geraakt:** verkopen;
+- **analyse slaat om:** overweeg te verkopen.
+
+Uitzetten met `notify_holdings: false`.
+
+## Budgetplan
+
+Vul bij **Mijn budget** je bedrag en profiel in. Je krijgt per aandeel of munt:
+- hoeveel je erin stopt en wanneer (nu, of een limietorder bij een terugval);
+- de zekerheid;
+- wanneer je verkoopt.
+
+Daarnaast toont het plan het totaal: winst bij de doelen, maximaal verlies en wat er in kas blijft. Bedragen zijn
+gebaseerd op risico per positie. Komt een "koop bij terugval" in de instapzone, dan krijg je een melding.
+
 ## Zelfstandig handelen (tabblad Trading)
 
 Het model kan zelf kopen en verkopen binnen een budget dat jij kiest:
@@ -99,6 +131,7 @@ Voor de samenvattingen: ongeveer 48 aanvragen per dag (elk uur één per markt).
 - **Aanbeveling per markt:** `sensor.market_monitor_stocks_recommendation` en
   `sensor.market_monitor_crypto_recommendation`.
 - **Laatste noodmelding:** `sensor.market_monitor_alert`. Status van de add-on: `sensor.market_monitor_status`.
+- **Mijn posities:** `sensor.market_monitor_holdings` (waarde, resultaat en advies per positie).
 - **Handelen:** `sensor.market_monitor_trading` (vermogen van de live-run, resultaten van alle runs).
 - **Events:** `market_monitor_alert`, `market_monitor_summary` en `market_monitor_big_trade`, voor eigen
   automatiseringen (bijvoorbeeld een lamp laten knipperen).
@@ -116,6 +149,11 @@ Voor de samenvattingen: ongeveer 48 aanvragen per dag (elk uur één per markt).
   Aanbeveling staat welke koersbron wat terugstuurde.
 - **Nog geen samenvatting:** klik in het samenvattingspaneel op **Nu samenvatten**.
 - **"CoinGecko: limiet bereikt":** maak een gratis demo-sleutel aan op coingecko.com en vul `coingecko_api_key` in.
+- **Geen X-posts in het nieuws:** de X API is betaald. Vul `x_bearer_token` in, of als alternatief
+  `x_rss_template` (eigen RSS-bron). Het filter *Posts op X* laat zien wat er misgaat.
+- **Crypto-transacties zijn vooral transfers:** grote bitcoin-transfers worden nu gelabeld als samenvoegen,
+  uitbetaling of verplaatsing. Echte aankopen komen uit 8-K-meldingen van bedrijven (10 munten); die zijn er niet
+  elke dag.
 - **Handelen: "Verbinding testen" mislukt:** controleer de sleutel en het geheim, de rechten (bekijken + handelen)
   en de IP-whitelist bij de broker. Bij Trading 212 moet de sleutel uit de gekozen omgeving komen (demo of live).
 - **Handelen: geen trades:** kijk in het logboek bij *Afgewezen*. Daar staat per aandeel of munt waarom niet. Vaak

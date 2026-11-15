@@ -2,7 +2,7 @@ import json
 from datetime import timedelta
 
 from market_monitor.alerts import AlertEngine
-from market_monitor.db import ago, iso, utcnow
+from market_monitor.db import ago, iso, parse_iso, utcnow
 from market_monitor.hass import HomeAssistant
 
 
@@ -101,7 +101,9 @@ def test_insider_cluster_and_big_politician(cfg, db):
     ] + [
         {"id": "p1", "source": "house", "actor_name": "Alex Example", "actor_role": "Afgevaardigde",
          "actor_type": "politician", "ticker": "SMPL", "tx_type": "buy", "value_low": 1_000_001,
-         "value_high": 5_000_000, "value_usd": 3_000_000, "tx_date": ago(days=20)[:10], "filed_at": ago(hours=3)},
+         "value_high": 5_000_000, "value_usd": 3_000_000, "filed_at": ago(hours=3),
+         # 20 kalenderdagen voor de meldingsdatum (ook net na middernacht UTC)
+         "tx_date": (parse_iso(ago(hours=3)) - timedelta(days=20)).strftime("%Y-%m-%d")},
     ])
     eng, hass = _engine(cfg, db)
     assert eng.run() == 2

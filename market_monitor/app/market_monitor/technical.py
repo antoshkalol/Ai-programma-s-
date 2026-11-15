@@ -5,8 +5,12 @@ Gebruikt alleen slotkoersen (die hebben we voor zowel aandelen als crypto):
   * momentum   : MACD (12/26/9) en RSI (14)
   * volatiliteit: Bollinger-banden (20, 2σ), gemiddelde dagbeweging (ATR-benadering), dagelijkse σ
   * niveaus    : steun en weerstand uit 'swing'-toppen en -bodems die meerdere keren getest zijn
+  * uitgebreid : 200-daags gemiddelde + golden/death cross, EMA 9/21, stochastic, RSI-divergentie,
+                 trendstructuur (hogere toppen/bodems), koersverandering 20 dagen, jaarhoog/-laag,
+                 Bollinger-squeeze en Fibonacci-niveaus (scorekaart in plan["indicators"])
 
-De richting combineert de koopscore van het model (60%) met de technische stemming (40%).
+De richting combineert de koopscore van het model (60%) met de technische stemming (40%). De technische
+stemming bestaat voor driekwart uit de basis (trend, MACD, RSI) en voor een kwart uit de uitgebreide indicatoren.
 Het plan geeft een instapzone, stop-loss, twee koersdoelen, risico/rendement en een verwachtingskegel
 (±1σ) voor de komende ~20 koersdagen. Het is een schets van een scenario, geen voorspelling.
 """
@@ -150,6 +154,105 @@ def future_dates(last: str, n: int, weekdays_only: bool) -> list[str]:
     return out
 
 
+def stochastic(v: list[float], n: int = 14, d: int = 3) -> tuple[list, list]:
+    """Stochastic oscillator (%K, %D) op slotkoersen (zonder dag-hoog/-laag is dit een benadering)."""
+    k: list[float | None] = [None] * len(v)
+    for i in range(n - 1, len(v)):
+        w = v[i - n + 1: i + 1]
+        hi, lo = max(w), min(w)
+        k[i] = 50.0 if hi == lo else (v[i] - lo) / (hi - lo) * 100
+    dd: list[float | None] = [None] * len(v)
+    for i in range(len(v)):
+        w = [x for x in k[max(0, i - d + 1): i + 1] if x is not None]
+        if len(w) == d:
+            dd[i] = sum(w) / d
+    return k, dd
+
+
+def swing_points(v: list[float], window: int = 3, start: int = 0) -> tuple[list[int], list[int]]:
+    """Indexen van lokale toppen en bodems (een top is hoger dan 'window' dagen ervoor en erna)."""
+    highs, lows = [], []
+    for i in range(max(window, start), len(v) - window):
+        seg = v[i - window: i + window + 1]
+        if v[i] == max(seg) and seg.count(v[i]) == 1:
+            highs.append(i)
+        elif v[i] == min(seg) and seg.count(v[i]) == 1:
+            lows.append(i)
+    return highs, lows
+
+
+def rsi_divergence(v: list[float], rsi: list, lookback: int = 60) -> dict | None:
+    """Divergentie: koers maakt een nieuw dieptepunt maar de RSI niet (positief), of andersom (negatief)."""
+    start = max(0, len(v) - lookback)
+    highs, lows = swing_points(v, 3, start)
+    if len(lows) >= 2:
+        a, b = lows[-2], lows[-1]
+        if rsi[a] is not None and rsi[b] is not None and v[b] < v[a] and rsi[b] > rsi[a] + 2 \
+                and len(v) - 1 - b <= 15:
+            return {"kind": "positief", "index": [a, b]}
+    if len(highs) >= 2:
+        a, b = highs[-2], highs[-1]
+        if rsi[a] is not None and rsi[b] is not None and v[b] > v[a] and rsi[b] < rsi[a] - 2 \
+                and len(v) - 1 - b <= 15:
+            return {"kind": "negatief", "index": [a, b]}
+    return None
+
+
+def trend_structure(v: list[float], lookback: int = 90) -> str:
+    """Hogere toppen en hogere bodems = stijgend; lagere toppen en lagere bodems = dalend."""
+    highs, lows = swing_points(v, 5, max(0, len(v) - lookback))
+    if len(highs) < 2 or len(lows) < 2:
+        return "onduidelijk"
+    hh, hl = v[highs[-1]] > v[highs[-2]], v[lows[-1]] > v[lows[-2]]
+    if hh and hl:
+        return "stijgend"
+    if not hh and not hl:
+        return "dalend"
+    return "zijwaarts"
+
+
+def fibonacci(v: list[float], lookback: int = 120) -> dict | None:
+    """Fibonacci-niveaus van de laatste grote beweging (laagste en hoogste punt in de periode)."""
+    seg = v[-lookback:]
+    if len(seg) < 30:
+        return None
+    lo_i, hi_i = seg.index(min(seg)), seg.index(max(seg))
+    lo, hi = seg[lo_i], seg[hi_i]
+    if hi <= lo * 1.03:
+        return None
+    up = lo_i < hi_i                 # eerst bodem, dan top: terugval vanaf de top meten
+    levels = []
+    for r in (0.236, 0.382, 0.5, 0.618, 0.786):
+        price = hi - (hi - lo) * r if up else lo + (hi - lo) * r
+        levels.append({"ratio": r, "price": price})
+    return {"direction": "op" if up else "neer", "high": hi, "low": lo, "levels": levels,
+            "start": len(v) - len(seg) + min(lo_i, hi_i), "end": len(v) - len(seg) + max(lo_i, hi_i)}
+
+
+def bandwidth_squeeze(mid: list, up: list, low: list, lookback: int = 120) -> dict | None:
+    """Bollinger 'squeeze': de band is zo smal als in maanden niet - vaak gevolgd door een grote beweging."""
+    bw = [(u - lo) / m for m, u, lo in zip(mid, up, low) if m and u is not None and lo is not None]
+    if len(bw) < 40:
+        return None
+    hist = bw[-lookback:]
+    now = hist[-1]
+    rank = sum(1 for x in hist if x <= now) / len(hist)
+    return {"bandwidth": now, "percentile": rank, "squeeze": rank <= 0.1}
+
+
+def crossed(a: list, b: list, within: int) -> str | None:
+    """'op' als a de laatste 'within' dagen boven b is gekomen, 'neer' als eronder."""
+    n = len(a)
+    for i in range(n - 1, max(0, n - within) - 1, -1):
+        if i < 1 or None in (a[i], b[i], a[i - 1], b[i - 1]):
+            continue
+        if a[i - 1] <= b[i - 1] and a[i] > b[i]:
+            return "op"
+        if a[i - 1] >= b[i - 1] and a[i] < b[i]:
+            return "neer"
+    return None
+
+
 def _fmt(v: float) -> str:
     if v is None:
         return "?"
@@ -165,6 +268,138 @@ def _pct(v: float) -> str:
 
 
 # --------------------------------------------------------------------------- plan
+def extended_analysis(closes, price, sma20, sma50, rsi, m_line, m_sig, m_hist, bb_mid, bb_up, bb_low, reg,
+                      support, resistance, signals) -> tuple[list[dict], float, float]:
+    """Scorekaart met alle indicatoren: (lijst, stem van de extra indicatoren, maximale stem)."""
+    n = len(closes)
+    items: list[dict] = []
+    extra = extra_max = 0.0
+
+    def add(name: str, value: str, signal: str, text: str, vote: float = 0.0, weight: float = 0.0,
+            core: bool = False) -> None:
+        nonlocal extra, extra_max
+        items.append({"name": name, "value": value, "signal": signal, "text": text, "core": core})
+        extra += vote
+        extra_max += weight
+
+    def sig(x: float) -> str:
+        return "positief" if x > 0 else "negatief" if x < 0 else "neutraal"
+
+    # ---- basis (telt al mee in de technische stemming)
+    s20, s50, r_now = sma20[-1], sma50[-1], rsi[-1]
+    if s50:
+        add("50-daags gemiddelde", _fmt(s50), sig(price - s50),
+            f"Koers {_pct((price / s50 - 1) * 100)} {'boven' if price > s50 else 'onder'} het gemiddelde van 50 dagen",
+            core=True)
+    if s20 and s50:
+        add("SMA 20 / SMA 50", "boven" if s20 > s50 else "onder", sig(s20 - s50),
+            "Korte trend " + ("boven de lange trend: opwaarts" if s20 > s50 else "onder de lange trend: neerwaarts"),
+            core=True)
+    month = math.exp(reg["slope"] * 21) - 1
+    add("Trendkanaal 60 dagen", f"{_pct(month * 100)}/mnd", sig(reg["slope"]) if reg["r2"] > 0.2 else "neutraal",
+        f"Richting van de trend; betrouwbaarheid R² {reg['r2']:.2f}".replace(".", ","), core=True)
+    macd_cross = crossed(m_line, m_sig, 5)
+    add("MACD", "boven signaal" if m_hist[-1] > 0 else "onder signaal", sig(m_hist[-1]),
+        ("Momentum positief" if m_hist[-1] > 0 else "Momentum negatief")
+        + (f"; MACD kruiste de signaallijn {'omhoog' if macd_cross == 'op' else 'omlaag'} (laatste 5 dagen)"
+           if macd_cross else "")
+        + ("; momentum neemt toe" if len(m_hist) > 3 and abs(m_hist[-1]) > abs(m_hist[-3]) else "; momentum neemt af"),
+        core=True)
+    if r_now is not None:
+        rs = "negatief" if r_now > 70 else "positief" if r_now < 30 else "neutraal"
+        add("RSI (14)", f"{r_now:.0f}", rs, "Oververhit boven 70, oversold onder 30" if rs == "neutraal" else
+            ("Oververhit: kans op terugval" if r_now > 70 else "Oversold: kans op herstel"), core=True)
+    if bb_up[-1] and bb_low[-1]:
+        pos = (price - bb_low[-1]) / (bb_up[-1] - bb_low[-1]) if bb_up[-1] > bb_low[-1] else 0.5
+        add("Bollinger-band", f"{pos * 100:.0f}% van de band", "neutraal",
+            "Bovenkant van de band: sterk maar uitgerekt" if pos > 0.9 else
+            "Onderkant van de band: zwak maar uitgerekt" if pos < 0.1 else "Binnen de band", core=True)
+
+    # ---- uitgebreid (telt voor een kwart mee)
+    sma200 = sma_series(closes, 200)
+    if sma200[-1]:
+        v = 0.15 if price > sma200[-1] else -0.15
+        add("200-daags gemiddelde", _fmt(sma200[-1]), sig(v),
+            f"Koers {_pct((price / sma200[-1] - 1) * 100)} {'boven' if v > 0 else 'onder'} het 200-daags "
+            "gemiddelde: " + ("lange-termijntrend omhoog" if v > 0 else "lange-termijntrend omlaag"), v, 0.15)
+        gc = crossed(sma50, sma200, 20)
+        if gc:
+            v = 0.10 if gc == "op" else -0.10
+            name = "Golden cross" if gc == "op" else "Death cross"
+            add(name, "laatste 20 dagen", sig(v), "SMA 50 kruiste de SMA 200 " + ("omhoog: klassiek koopsignaal"
+                if gc == "op" else "omlaag: klassiek verkoopsignaal"), v, 0.10)
+            signals.append(f"{name}: SMA 50 kruiste de SMA 200 " + ("omhoog" if gc == "op" else "omlaag"))
+        else:
+            add("SMA 50 / SMA 200", "boven" if (sma50[-1] or 0) > sma200[-1] else "onder", "neutraal",
+                "Geen recente kruising", 0.0, 0.10)
+        signals.append(f"Koers {'boven' if price > sma200[-1] else 'onder'} het 200-daags gemiddelde ({_fmt(sma200[-1])})")
+    else:
+        add("200-daags gemiddelde", "-", "neutraal", "Nog geen 200 dagen koershistorie")
+    e9, e21 = ema_series(closes, 9), ema_series(closes, 21)
+    v = 0.10 if e9[-1] > e21[-1] else -0.10
+    ec = crossed(e9, e21, 3)
+    add("EMA 9 / EMA 21", "boven" if v > 0 else "onder", sig(v),
+        "Korte-termijntrend " + ("omhoog" if v > 0 else "omlaag")
+        + (f"; net gekruist {'omhoog' if ec == 'op' else 'omlaag'}" if ec else ""), v, 0.10)
+    k, d = stochastic(closes)
+    if k[-1] is not None and d[-1] is not None:
+        sc = crossed(k, d, 3)
+        if k[-1] < 20:
+            v = 0.10 if sc == "op" else 0.05
+            txt = "Oversold" + (" en %K kruist %D omhoog: mogelijk keerpunt" if sc == "op" else "")
+        elif k[-1] > 80:
+            v = -0.10 if sc == "neer" else -0.05
+            txt = "Overbought" + (" en %K kruist %D omlaag: mogelijk keerpunt" if sc == "neer" else "")
+        else:
+            v, txt = 0.0, "Tussen 20 en 80: geen extreem"
+        add("Stochastic (14,3)", f"{k[-1]:.0f}", sig(v), txt, v, 0.10)
+    div = rsi_divergence(closes, rsi)
+    if div:
+        v = 0.15 if div["kind"] == "positief" else -0.15
+        txt = ("Koers maakte een lager dieptepunt, de RSI niet: verkoopdruk neemt af" if v > 0 else
+               "Koers maakte een hogere top, de RSI niet: koopkracht neemt af")
+        add("RSI-divergentie", div["kind"], sig(v), txt, v, 0.15)
+        signals.append(f"RSI-divergentie ({div['kind']}): {txt.lower()}")
+    else:
+        add("RSI-divergentie", "geen", "neutraal", "Koers en RSI bewegen gelijk op", 0.0, 0.15)
+    st = trend_structure(closes)
+    v = 0.15 if st == "stijgend" else -0.15 if st == "dalend" else 0.0
+    add("Trendstructuur", st, sig(v), {"stijgend": "Hogere toppen en hogere bodems",
+                                        "dalend": "Lagere toppen en lagere bodems",
+                                        "zijwaarts": "Toppen en bodems wisselen: zijwaartse markt",
+                                        "onduidelijk": "Te weinig duidelijke toppen en bodems"}[st], v, 0.15)
+    if n > 21:
+        roc = (price / closes[-21] - 1) * 100
+        v = 0.05 if roc > 0 else -0.05
+        add("Koersverandering 20 dagen", _pct(roc), sig(v), "Rate of change over ongeveer een maand", v, 0.05)
+    yr = closes[-252:]
+    hi, lo = max(yr), min(yr)
+    from_hi, from_lo = (price / hi - 1) * 100, (price / lo - 1) * 100
+    label = f"{len(yr)}-daags" if len(yr) < 252 else "52-weeks"
+    near_hi = from_hi > -3
+    add(f"{label} hoog/laag", f"{_pct(from_hi)} / {_pct(from_lo)}", "neutraal",
+        ("Dicht bij de hoogste koers: uitbraak of weerstand" if near_hi else
+         "Dicht bij de laagste koers" if from_lo < 3 else
+         f"{_pct(from_hi)} onder de hoogste en {_pct(from_lo)} boven de laagste koers"))
+    sq = bandwidth_squeeze(bb_mid, bb_up, bb_low)
+    if sq and sq["squeeze"]:
+        add("Bollinger-squeeze", "ja", "let op", "De band is zo smal als in maanden niet: vaak volgt een grote "
+            "beweging (richting nog onbekend)")
+        signals.append("Bollinger-squeeze: rustige koers, vaak gevolgd door een grote beweging")
+    fib = fibonacci(closes)
+    if fib:
+        near = min(fib["levels"], key=lambda lv: abs(lv["price"] - price))
+        dist = (price / near["price"] - 1) * 100
+        what = "steun" if near["price"] < price else "weerstand"
+        add("Fibonacci", f"{near['ratio'] * 100:.1f}%".replace(".", ","), "neutraal",
+            f"Dichtstbijzijnde Fibonacci-niveau {_fmt(near['price'])} ({_pct(dist)} van de koers) kan als {what} "
+            f"werken (beweging {_fmt(fib['low'])} - {_fmt(fib['high'])})")
+    if support or resistance:
+        add("Steun / weerstand", f"{_fmt(support) if support else '-'} / {_fmt(resistance) if resistance else '-'}",
+            "neutraal", "Niveaus waar de koers vaker keerde", core=True)
+    return items, extra, extra_max
+
+
 def build_plan(dates: list[str], closes: list[float], score: float = 50.0, prob_up: float = 0.5,
                market: str = "stocks", horizon: int = HORIZON) -> dict:
     """Maakt de technische analyse + handelsplan + grafiekdata voor één aandeel/munt."""
@@ -228,7 +463,11 @@ def build_plan(dates: list[str], closes: list[float], score: float = 50.0, prob_
             touches = resistances[0]["touches"] if resistances else 1
             parts.append(f"weerstand {_fmt(resistance)}" + (f" ({touches}x getest)" if touches > 1 else ""))
         signals.append("Dichtstbijzijnde " + " en ".join(parts))
-    ta = max(-1.0, min(1.0, votes))
+    core = max(-1.0, min(1.0, votes))
+    indicators, extra, extra_max = extended_analysis(closes, price, sma20, sma50, rsi, m_line, m_sig, m_hist,
+                                                     bb_mid, bb_up, bb_low, reg, support, resistance, signals)
+    # De uitgebreide indicatoren tellen voor een kwart mee; de basis (trend, MACD, RSI) voor driekwart
+    ta = max(-1.0, min(1.0, 0.75 * core + 0.25 * (extra / extra_max if extra_max else 0.0)))
     combined = 0.6 * (score - 50) / 50 + 0.4 * ta
 
     if combined >= 0.2:
@@ -241,6 +480,7 @@ def build_plan(dates: list[str], closes: list[float], score: float = 50.0, prob_
 
     # ------------------------------------------------------------ niveaus
     plan: dict = {"direction": direction, "conviction": conviction, "price": price, "ta_score": round(ta, 3),
+                  "indicators": indicators,
                   "model_score": score, "combined": round(combined, 3), "horizon_days": horizon,
                   "support": support, "resistance": resistance, "atr": atr, "sigma": sigma, "rsi": r_now}
     if direction == "long":
@@ -333,11 +573,19 @@ def build_plan(dates: list[str], closes: list[float], score: float = 50.0, prob_
         x = i - reg["start"]
         c = reg["intercept"] + reg["slope"] * x
         ch.append([i - s, math.exp(c), math.exp(c + 2 * reg["sigma"]), math.exp(c - 2 * reg["sigma"])])
+    sma200 = sma_series(closes, 200)
+    fib = fibonacci(closes)
     chart = {
         "dates": dates[s:],
         "close": closes[s:],
         "sma20": sma20[s:],
         "sma50": sma50[s:],
+        "sma200": sma200[s:] if any(x is not None for x in sma200[s:]) else [],
+        "macd": [round(x, 8) for x in m_line[s:]],
+        "macd_signal": [round(x, 8) for x in m_sig[s:]],
+        "macd_hist": [round(x, 8) for x in m_hist[s:]],
+        "fib": ([{"ratio": lv["ratio"], "price": lv["price"]} for lv in fib["levels"]] if fib else []),
+        "fib_range": ({"high": fib["high"], "low": fib["low"], "direction": fib["direction"]} if fib else None),
         "bb_upper": bb_up[s:],
         "bb_lower": bb_low[s:],
         "rsi": rsi[s:],

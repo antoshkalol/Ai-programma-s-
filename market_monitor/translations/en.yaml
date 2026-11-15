@@ -11,6 +11,11 @@ configuration:
     name: "Notifications: quiet hours for the hourly summary (e.g. 23-7)"
   notify_recommendation_changes:
     name: "Notifications: popup when the recommendation changes"
+  notify_holdings:
+    name: "Notifications: sell and entry moments"
+    description: >-
+      High-priority notification when you should (partly) sell a position (stop-loss, target 1, target 2, trailing
+      stop, reversal) and when a budget-plan position reaches its entry zone.
   alerts_enabled:
     name: "Notifications: emergency alerts on"
   alert_sensitivity:
@@ -88,6 +93,12 @@ configuration:
     name: "News: minimum credibility (0-1)"
   x_bearer_token:
     name: X (Twitter) bearer token (optional, paid)
+    description: Required for X posts via the official (paid) X API. Without a token no X posts are collected.
+  x_rss_template:
+    name: "X posts via RSS (optional, advanced)"
+    description: >-
+      Alternative without the X API: an RSS URL per account with {account} in place of the username, e.g. from
+      your own RSS-bridge or Nitter server. Only works while that service works.
   allow_live_trading:
     name: "Trading: allow live trading with real money"
     description: >-

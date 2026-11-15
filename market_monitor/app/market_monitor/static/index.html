@@ -77,11 +77,12 @@
         <div class="filters">
           <div class="seg" data-filter="junk">
             <button type="button" data-v="0" class="on">Betrouwbaar</button>
+            <button type="button" data-v="post">Posts op X</button>
             <button type="button" data-v="1" id="btn-junk">Weggefilterd</button>
           </div>
         </div>
       </div>
-      <div class="panel-body"><ul class="news" id="news-list"></ul>
+      <div class="panel-body"><p class="news-social" id="news-social" role="status" hidden></p><ul class="news" id="news-list"></ul>
         <p class="empty" id="news-empty" hidden>Nog geen berichten.</p></div>
     </section>
 
@@ -106,6 +107,41 @@
   </main>
 
   <main class="rec-view" id="rec-view" hidden aria-label="Aanbevelingen">
+    <section class="panel rec-wide" id="budget-panel" aria-labelledby="h-budget">
+      <div class="panel-head">
+        <h2 id="h-budget">Mijn budget <span class="sub">wat kun je het beste doen met je geld?</span></h2>
+      </div>
+      <div class="panel-body">
+        <form class="budget-form" id="budget-form" novalidate>
+          <label>Budget (€) <input type="number" id="budget-amount" min="50" step="50" inputmode="decimal" placeholder="bv. 2000" required></label>
+          <label>Profiel
+            <select id="budget-profile">
+              <option value="voorzichtig">Voorzichtig</option>
+              <option value="normaal" selected>Normaal</option>
+              <option value="offensief">Offensief</option>
+            </select>
+          </label>
+          <label>Markten
+            <select id="budget-markets">
+              <option value="beide">Aandelen en crypto</option>
+              <option value="stocks">Alleen aandelen</option>
+              <option value="crypto">Alleen crypto</option>
+            </select>
+          </label>
+          <label class="check"><input type="checkbox" id="budget-alerts" checked> Melding bij instapmoment</label>
+          <button type="submit" class="primary" id="budget-go">Bereken plan</button>
+        </form>
+        <p class="sub" id="budget-profile-help"></p>
+        <div id="budget-result"></div>
+      </div>
+    </section>
+    <section class="panel rec-wide" id="holdings-panel" aria-labelledby="h-holdings">
+      <div class="panel-head">
+        <h2 id="h-holdings">Mijn posities <span class="sub">wat je gekocht hebt, met verkoopadvies</span></h2>
+        <div class="filters"><button type="button" id="holding-add">Positie toevoegen</button></div>
+      </div>
+      <div class="panel-body" id="holdings-body"></div>
+    </section>
     <section class="panel rec-card" id="rec-stocks" data-rec-market="stocks"></section>
     <section class="panel rec-card" id="rec-crypto" data-rec-market="crypto"></section>
   </main>
@@ -194,9 +230,18 @@
     <div class="drawer-body" id="d-body"></div>
   </aside>
 
+  <dialog class="modal" id="modal" aria-labelledby="modal-title">
+    <div class="modal-head">
+      <h2 id="modal-title"></h2>
+      <button type="button" id="modal-close">Sluiten</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </dialog>
+
   <div class="tooltip" id="tooltip" role="status" hidden></div>
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
   <script src="static/app.js"></script>
+  <script src="static/advice.js"></script>
   <script src="static/trading.js"></script>
 </body>
 </html>

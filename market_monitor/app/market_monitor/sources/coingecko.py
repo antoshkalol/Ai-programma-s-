@@ -2,7 +2,7 @@
 
 * Marktoverzicht (top 100): koers, 1u/24u/7d-verandering, volume, marktwaarde. Elke paar minuten;
   wordt bewaard als snapshot zodat de noodmelding plotselinge stijgingen en volumepieken ziet.
-* Historie (180 dagen, dagelijks) per munt voor trend, RSI en instapmoment.
+* Historie (365 dagen, dagelijks) per munt voor trend, RSI, 200-daags gemiddelde en instapmoment.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ MARKETS_URL = (
     BASE + "/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1"
     "&price_change_percentage=1h,24h,7d"
 )
-CHART_URL = BASE + "/coins/{id}/market_chart?vs_currency=usd&days=180&interval=daily"
+CHART_URL = BASE + "/coins/{id}/market_chart?vs_currency=usd&days=365&interval=daily"
 
 
 def headers(cfg) -> dict:
