@@ -15,7 +15,8 @@
     <nav class="market-tabs" role="tablist" aria-label="Markt" id="market-tabs">
       <button type="button" role="tab" data-market="stocks" aria-selected="true">Aandelen</button>
       <button type="button" role="tab" data-market="crypto" aria-selected="false">Crypto</button>
-      <button type="button" role="tab" data-market="rec" aria-selected="false">Aanbeveling</button>
+      <button type="button" role="tab" data-market="rec" aria-selected="false"><span class="tab-long">Aanbeveling</span><span class="tab-short" aria-hidden="true">Advies</span></button>
+      <button type="button" role="tab" data-market="analyse" aria-selected="false">Analyse</button>
       <button type="button" role="tab" data-market="trade" aria-selected="false">Trading</button>
     </nav>
     <div class="mood" id="mood" aria-live="polite"></div>
@@ -146,6 +147,39 @@
     <section class="panel rec-card" id="rec-crypto" data-rec-market="crypto"></section>
   </main>
 
+  <main class="analyse-view" id="analyse-view" hidden aria-label="Uitgebreide analyse">
+    <section class="panel" id="analyse-form-panel" aria-labelledby="h-analyse">
+      <div class="panel-head">
+        <h2 id="h-analyse">Uitgebreide analyse <span class="sub">kies een aandeel of munt; Claude schrijft een technische analyse met aanbeveling</span></h2>
+      </div>
+      <div class="panel-body">
+        <form class="analyse-form" id="analyse-form" novalidate>
+          <label>Markt
+            <select id="an-market"><option value="stocks">Aandelen</option><option value="crypto">Crypto</option></select>
+          </label>
+          <label>Aandeel of munt
+            <input type="text" id="an-ticker" list="an-tickers" autocomplete="off" placeholder="bv. NVDA, ASML of BTC" required>
+            <datalist id="an-tickers"></datalist>
+          </label>
+          <label>Model
+            <select id="an-model"></select>
+          </label>
+          <label>Diepgang
+            <select id="an-effort"></select>
+          </label>
+          <button type="submit" class="primary" id="an-go">Analyseer</button>
+        </form>
+        <p class="sub" id="an-help"></p>
+        <div class="an-progress" id="an-progress" role="status" hidden></div>
+      </div>
+    </section>
+    <section class="panel" id="analyse-result" aria-live="polite" hidden></section>
+    <section class="panel" id="analyse-history" aria-labelledby="h-an-hist">
+      <div class="panel-head"><h2 id="h-an-hist">Eerdere analyses</h2></div>
+      <div class="panel-body" id="an-history"></div>
+    </section>
+  </main>
+
   <main class="trade-view" id="trade-view" hidden aria-label="Zelfstandig handelen">
     <section class="panel trade-panel" id="trade-status" aria-labelledby="h-trade-status">
       <div class="panel-head">
@@ -242,6 +276,7 @@
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
   <script src="static/app.js"></script>
   <script src="static/advice.js"></script>
+  <script src="static/analyse.js"></script>
   <script src="static/trading.js"></script>
 </body>
 </html>

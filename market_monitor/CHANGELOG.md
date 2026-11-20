@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.8.0
+
+- **Nieuw tabblad Analyse:** kies een aandeel of munt, en Claude (standaard **Opus 5.5**, of Sonnet/Haiku) schrijft
+  een uitgebreide technische analyse.
+  - **Aanbeveling:** kopen, short, afwachten of verkopen, met termijn, zekerheid, instapzone, stop-loss en twee
+    doelen.
+  - **Kans** dat doel 1 eerder wordt geraakt dan de stop. Ter controle staan ernaast:
+    - de **historische trefkans**: hoe vaak dezelfde afstanden in het afgelopen jaar binnen 20 dagen eerst het doel
+      of eerst de stop raakten;
+    - de kans van het koopscore-model.
+  - **Drie scenario's** (positief, basis, negatief) met kansen en koersdoelen.
+  - Trend (kort, middellang, lang), momentum, beweeglijkheid, patronen, steun/weerstand, uitleg van de indicatoren.
+  - Wat de koers kan bewegen, risico's, wanneer de analyse niet meer klopt, en een samenvatting in gewone taal.
+  - Koersgrafiek met de niveaus uit de aanbeveling, RSI, MACD, cijfers en de scorekaart.
+  - **Elke ticker:** ook aandelen en munten die het dashboard niet volgt. De koersen worden dan eerst opgehaald,
+    voor crypto ook buiten de top 100.
+  - **Controle:** de code controleert de niveaus en kansen. Bij onlogische niveaus wordt de eigen berekening
+    gebruikt, met een melding.
+  - Eerdere analyses blijven bewaard. Een analyse van dezelfde ticker binnen 30 minuten wordt hergebruikt.
+    Werkelijke kosten per analyse zichtbaar.
+  - Ook te starten vanuit het detailvenster van een aandeel of munt. Bij een koopadvies direct **Ik heb dit
+    gekocht**.
+- **Telefoon:** vijf tabbladen passen naast elkaar ("Aanbeveling" heet daar "Advies").
+- Lange AI-antwoorden worden gestreamd, zodat een grondige analyse niet afbreekt door een time-out.
+
 ## 0.7.0
 
 - **Kan ik nu kopen?** Elke aanbeveling heeft een blok JA/NEE met de reden, bijvoorbeeld:

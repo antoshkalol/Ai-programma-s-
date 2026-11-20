@@ -1,5 +1,5 @@
 name: Market Monitor
-version: "0.7.0"
+version: "0.8.0"
 slug: market_monitor
 description: >-
   Volgt grote transacties op de aandelen- en cryptomarkt (politici, insiders, bedrijven, walvissen),

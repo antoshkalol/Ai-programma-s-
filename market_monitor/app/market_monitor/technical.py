@@ -253,6 +253,44 @@ def crossed(a: list, b: list, within: int) -> str | None:
     return None
 
 
+def hit_rate(v: list[float], up_pct: float, down_pct: float, horizon: int = 20, direction: str = "long",
+             lookback: int = 250) -> dict | None:
+    """Historische trefkans: hoe vaak werd in het verleden binnen 'horizon' dagen eerst het koersdoel geraakt
+    (+up_pct bij long, -up_pct bij short) en hoe vaak eerst de stop (-down_pct / +down_pct)?
+
+    Telt elke dag van de afgelopen 'lookback' dagen als mogelijk instapmoment. Zegt iets over hoe beweeglijk
+    deze koers is voor deze afstanden, niet over het huidige signaal."""
+    n = len(v)
+    if up_pct <= 0 or down_pct <= 0 or n < horizon + 30:
+        return None
+    sign = 1 if direction == "long" else -1
+    wins = losses = timeouts = 0
+    for i in range(max(0, n - horizon - lookback), n - horizon):
+        entry = v[i]
+        up, down = entry * (1 + sign * up_pct / 100), entry * (1 - sign * down_pct / 100)
+        result = 0
+        for j in range(i + 1, i + horizon + 1):
+            if sign * (v[j] - up) >= 0:
+                result = 1
+                break
+            if sign * (v[j] - down) <= 0:
+                result = -1
+                break
+        if result == 1:
+            wins += 1
+        elif result == -1:
+            losses += 1
+        else:
+            timeouts += 1
+    total = wins + losses + timeouts
+    if not total:
+        return None
+    return {"direction": direction, "up_pct": round(up_pct, 2), "down_pct": round(down_pct, 2), "horizon": horizon,
+            "n": total, "wins": wins, "losses": losses, "timeouts": timeouts,
+            "win_rate": round(wins / (wins + losses) * 100, 1) if wins + losses else None,
+            "win_rate_all": round(wins / total * 100, 1)}
+
+
 def _fmt(v: float) -> str:
     if v is None:
         return "?"

@@ -214,6 +214,24 @@ CREATE TABLE IF NOT EXISTS user_holdings (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS user_analyses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    market TEXT NOT NULL,
+    ticker TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    finished_at TEXT,
+    status TEXT NOT NULL,          -- running | done | error
+    step TEXT,                     -- wat er nu gebeurt (voor de voortgang in het dashboard)
+    model TEXT,
+    effort TEXT,
+    local TEXT,                    -- eigen berekening (JSON)
+    ai TEXT,                       -- analyse van Claude (JSON)
+    usage TEXT,
+    cost_usd REAL,
+    error TEXT                     -- fout, of een opmerking (bv. geen AI-sleutel)
+);
+CREATE INDEX IF NOT EXISTS idx_analyses ON user_analyses(market, ticker, created_at);
+
 CREATE TABLE IF NOT EXISTS trading_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,

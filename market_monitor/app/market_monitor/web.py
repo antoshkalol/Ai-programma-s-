@@ -15,6 +15,8 @@ from . import __version__
 from .config import MARKET_LABELS, MARKETS
 from .db import ago, iso, utcnow
 from .markets import crypto_proxies
+from .analyzer import EFFORTS as ANALYSIS_EFFORTS
+from .analyzer import MODELS as ANALYSIS_MODELS
 from .planner import PROFILES
 from .summary import latest_summary, trades_sql
 from .trading import settings as tsettings
@@ -367,6 +369,36 @@ def create_app(monitor) -> Flask:
         rows += [r for r in db.query("SELECT ticker, name, last_price FROM price_meta WHERE market=? AND last_price"
                                      " IS NOT NULL ORDER BY ticker", (market,)) if r["ticker"] not in seen]
         return jsonify(rows)
+
+    # ------------------------------------------------------------------ uitgebreide analyse (Opus 5.5)
+    @app.post("/api/analysis")
+    def analysis_start():
+        b = _body()
+        try:
+            r = monitor.analyzer.start(b.get("market", "stocks"), str(b.get("ticker") or ""),
+                                       str(b.get("model") or "claude-opus-5-5"), str(b.get("effort") or "high"),
+                                       force=bool(b.get("force")))
+        except ValueError as exc:
+            return jsonify({"ok": False, "message": str(exc)}), 400
+        return jsonify({"ok": True, "analysis": r})
+
+    @app.get("/api/analysis")
+    def analysis_list():
+        return jsonify({"recent": monitor.analyzer.recent(_int("limit", 20, 1, 100)), "ai_available": cfg.llm_enabled,
+                        "models": ANALYSIS_MODELS, "efforts": ANALYSIS_EFFORTS})
+
+    @app.get("/api/analysis/<int:aid>")
+    def analysis_get(aid: int):
+        r = monitor.analyzer.get(aid)
+        if not r:
+            abort(404)
+        return jsonify(r)
+
+    @app.post("/api/analysis/<int:aid>/delete")
+    def analysis_delete(aid: int):
+        if not monitor.analyzer.delete(aid):
+            abort(404)
+        return jsonify({"ok": True})
 
     # ------------------------------------------------------------------ budgetplan
     @app.get("/api/budget")

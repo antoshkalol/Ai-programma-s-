@@ -52,6 +52,19 @@ Shorten is riskant; gebruik altijd een stop-loss.
 **Uitgebreide techniek:** onder de grafiek staat een scorekaart met zo'n 15 indicatoren, waaronder SMA 200, golden
 cross, EMA 9/21, stochastic, RSI-divergentie, trendstructuur en Fibonacci. Er is ook een MACD-strook.
 
+## Analyse naar keuze (tabblad Analyse)
+
+Kies aandelen of crypto, vul een ticker in (bv. NVDA of BTC) en klik op **Analyseer**. Claude (standaard Opus 5.5)
+schrijft na 1 tot 3 minuten een uitgebreide technische analyse met:
+- een aanbeveling (kopen/short/afwachten/verkopen) met instap, stop en doelen;
+- de **kans dat doel 1 eerder wordt geraakt dan de stop**, met de historische trefkans ter controle;
+- drie scenario's met kansen, risico's en wanneer de analyse niet meer klopt.
+
+Ook tickers die het dashboard niet volgt kunnen: de koersen worden dan eerst opgehaald.
+
+Kosten per analyse: Opus 5.5 ongeveer $0,10-0,30, Sonnet 5.5 $0,05-0,15, Haiku 5.5 minder dan $0,01. Zonder
+`anthropic_api_key` krijg je alleen de eigen berekening.
+
 ## Kan ik nu kopen? en eerdere aanbevelingen
 
 Elke aanbeveling heeft een blok **Kan ik nu kopen? JA/NEE** met de reden. Klik op een eerdere aanbeveling voor:
@@ -149,6 +162,8 @@ Voor de samenvattingen: ongeveer 48 aanvragen per dag (elk uur één per markt).
   Aanbeveling staat welke koersbron wat terugstuurde.
 - **Nog geen samenvatting:** klik in het samenvattingspaneel op **Nu samenvatten**.
 - **"CoinGecko: limiet bereikt":** maak een gratis demo-sleutel aan op coingecko.com en vul `coingecko_api_key` in.
+- **Analyse mislukt: "Geen koersen gevonden":** controleer de ticker. Aandelen gebruiken de Amerikaanse ticker
+  (AAPL, NVDA; voor ASML ook ASML). Crypto gebruikt het symbool (BTC, ETH, SOL).
 - **Geen X-posts in het nieuws:** de X API is betaald. Vul `x_bearer_token` in, of als alternatief
   `x_rss_template` (eigen RSS-bron). Het filter *Posts op X* laat zien wat er misgaat.
 - **Crypto-transacties zijn vooral transfers:** grote bitcoin-transfers worden nu gelabeld als samenvoegen,

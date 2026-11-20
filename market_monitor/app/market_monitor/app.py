@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from .alerts import AlertEngine
+from .analyzer import DeepAnalyzer
 from .config import Config
 from datetime import timedelta
 
@@ -57,6 +58,7 @@ class MarketMonitor:
         self.trading = TradingEngine(cfg, self.db, self.recommender, self.summarizer, self.hass, fx=self.fx)
         self.holdings = Holdings(cfg, self.db, self.recommender, self.hass, self.fx)
         self.planner = BudgetPlanner(cfg, self.db, self.recommender, self.summarizer, self.hass, self.fx)
+        self.analyzer = DeepAnalyzer(cfg, self.db, self.recommender, self.summarizer)
         self.scheduler = Scheduler(self.db, workers=5)
         self.job_markets: dict[str, str] = {}
         self._register_jobs()

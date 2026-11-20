@@ -741,3 +741,60 @@ ul.plain.small li { font-size: 12.5px; padding: 3px 0; }
 .news-social { font-size: 12.5px; border-radius: 8px; padding: 7px 10px; margin: 8px 0 4px; background: var(--surface-2); color: var(--text-2); }
 .news-social.bad { border-left: 3px solid var(--warning); }
 .news-social.good { border-left: 3px solid var(--good); }
+
+/* ---------------------------------------------------------------- Analyse naar keuze */
+.tab-short { display: none; }
+.market-tabs button[data-market="analyse"][aria-selected="true"]::after { background: var(--series-3); }
+body[data-view="analyse"] { --mk: var(--series-3); }
+body[data-view="analyse"] .mood, body[data-view="analyse"] .stats { display: none; }
+.analyse-view[hidden] { display: none !important; }
+.analyse-view { flex: 1; display: grid; gap: 12px; padding: 12px 16px; grid-template-columns: minmax(0, 1fr); align-content: start; }
+.analyse-view .panel-body { overflow: visible; max-height: none; }
+.analyse-form { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: end; margin: 10px 0 4px; }
+.analyse-form label { display: grid; gap: 3px; font-size: 12px; color: var(--text-2); }
+.analyse-form input[type="text"] { width: 200px; font-size: 16px; text-transform: uppercase; }
+.an-progress { display: flex; align-items: center; gap: 10px; margin: 10px 0; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); font-size: 14px; }
+.spinner { width: 18px; height: 18px; border-radius: 50%; border: 3px solid var(--grid); border-top-color: var(--series-1); animation: spin 0.9s linear infinite; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } }
+.dir-badge.sell { background: var(--serious); }
+.an-hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; align-items: center; border: 1px solid var(--border); border-left: 6px solid var(--muted); border-radius: 12px; padding: 12px 14px; margin: 6px 0 8px; background: var(--surface-2); }
+.an-hero.long { border-left-color: var(--pos); }
+.an-hero.short { border-left-color: var(--neg); }
+.an-hero.sell { border-left-color: var(--serious); }
+.an-headline { font-size: 17px; font-weight: 700; }
+.an-reason { margin: 6px 0 0; font-size: 14px; line-height: 1.5; }
+.an-gauge { text-align: center; min-width: 150px; }
+.an-gauge-num { font-size: 34px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.an-gauge-lbl { font-size: 11.5px; color: var(--text-2); max-width: 170px; margin: 2px auto 6px; }
+.meter.wide { width: 140px; height: 8px; display: inline-block; }
+.an-checks { margin: 0 0 8px; }
+.an-scen { display: grid; gap: 10px; }
+.an-scen-head { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; font-size: 13.5px; }
+.an-scen-p { font-weight: 750; font-variant-numeric: tabular-nums; }
+.an-scen-bar { display: block; height: 8px; border-radius: 4px; background: var(--grid); overflow: hidden; margin: 4px 0; }
+.an-scen-bar > span { display: block; height: 100%; border-radius: 4px; }
+.an-scen-bar.positief > span { background: var(--pos); }
+.an-scen-bar.basis > span { background: var(--muted); }
+.an-scen-bar.negatief > span { background: var(--neg); }
+.an-scen-desc { font-size: 13px; color: var(--text-2); }
+.an-summary { border-left-color: var(--series-3); }
+.an-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+@media (max-width: 900px) { .an-cols { grid-template-columns: 1fr; } }
+.an-section h3, .analyse-view h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 16px 0 6px; font-weight: 600; }
+.an-section p { margin: 0; font-size: 13.5px; line-height: 1.5; }
+.an-invalid { background: color-mix(in srgb, var(--warning) 14%, var(--surface)); border-radius: 8px; padding: 7px 10px; }
+.analyse-link { display: inline-block; margin: 2px 0 10px; font-weight: 600; color: var(--series-1); }
+@media (max-width: 640px) {
+  .tab-long { display: none; }
+  .tab-short { display: inline; }
+  .analyse-view { padding: 10px; }
+  .analyse-form label { flex: 1 1 140px; }
+  .analyse-form input[type="text"] { width: 100%; }
+  .an-hero { grid-template-columns: 1fr; }
+  .an-gauge { text-align: left; }
+  .an-gauge-lbl { margin-left: 0; }
+}
+.an-progress[hidden] { display: none; }
+ul.hist-list { list-style: none; padding: 0; margin: 0; }
+.analyse-form input::placeholder { text-transform: none; }

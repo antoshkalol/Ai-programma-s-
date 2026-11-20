@@ -26,6 +26,9 @@ met een duidelijke splitsing tussen de twee (tabbladen *Aandelen* en *Crypto*).
   uurberichten door.
 - Een **kooplijst** met per aandeel of munt een score (0-100), een geschatte **kans op stijging** (~1 maand) en
   een **instapmoment**.
+- **Analyse naar keuze (nieuw in 0.8):** kies een aandeel of munt en laat Claude (standaard Opus 5.5) een
+  uitgebreide technische analyse schrijven, met een aanbeveling, de kans dat het koersdoel eerder wordt geraakt dan
+  de stop, en scenario's. Zie [Analyse naar keuze](#analyse-naar-keuze).
 - **Advies voor je eigen geld (nieuw in 0.7):**
   - **Budgetplan:** vul je budget in en zie welke aandelen en munten het best zijn, voor hoeveel, wanneer je
     instapt, hoe zeker het model is en wanneer je verkoopt.
@@ -224,6 +227,61 @@ vers en voor aandelen elk kwartier tijdens beurstijd.
 
 > Shorten is riskanter dan kopen: je verlies kan groter zijn dan je inleg. Technische analyse is een
 > hulpmiddel, geen glazen bol. Gebruik altijd een stop-loss.
+
+---
+
+## Analyse naar keuze
+
+Op het tabblad **Analyse** kies je een markt (aandelen of crypto) en een ticker, bijvoorbeeld NVDA, ASML of BTC.
+Dat kan ook een aandeel of munt zijn die het dashboard niet volgt. Klik op **Analyseer**. Na 1 tot 3 minuten
+krijg je een uitgebreide technische analyse door Claude. Je kiest het model (standaard **Opus 5.5**) en de diepgang
+(normaal, grondig of zeer grondig).
+
+**Zo werkt het:**
+1. **Koersdata.** Ontbreekt de data, of is die oud, dan haalt de add-on eerst een jaar dagkoersen op:
+   - aandelen via Twelve Data, Yahoo, Nasdaq of Stooq;
+   - crypto via CoinGecko, ook buiten de top 100.
+2. **Eigen berekening.** De add-on berekent eerst zelf:
+   - de technische analyse van het dashboard: trend, MACD, RSI, steun en weerstand, Fibonacci en de scorekaart
+     met zo'n 15 indicatoren;
+   - rendementen en beweeglijkheid;
+   - de **historische trefkans:** hoe vaak werd in het afgelopen jaar binnen 20 dagen eerst het koersdoel geraakt,
+     en hoe vaak eerst de stop, bij dezelfde afstanden.
+3. **Context:** nieuws, X-posts, transacties van insiders, politici en bedrijven, en de koopscore.
+4. **Claude schrijft de analyse** op basis van al die gegevens, met:
+   - een **aanbeveling:** kopen, short, afwachten of verkopen, met termijn en zekerheid;
+   - **instapzone, stop-loss, doel 1 en doel 2**, met risico/rendement;
+   - de **kans dat doel 1 eerder wordt geraakt dan de stop**. Ter controle staan de historische trefkans en de
+     kans van het koopscore-model ernaast;
+   - **drie scenario's** (positief, basis, negatief), elk met een kans en een koersdoel;
+   - trend op korte, middellange en lange termijn, momentum, beweeglijkheid, patronen en steun/weerstand;
+   - uitleg van de indicatoren;
+   - wat de koers kan bewegen, de risico's, wanneer de analyse niet meer klopt en waar je op moet letten;
+   - een samenvatting in gewone taal.
+5. **Controle:** de code controleert of instap, stop en doelen logisch zijn (bij kopen: stop < instap < doel 1 <
+   doel 2). Zo niet, dan komen ze uit de eigen berekening en zie je daar een melding van. Kansen worden begrensd
+   (5-95%) en de scenario's tellen op tot 100%.
+
+Daaronder staan de koersgrafiek met de niveaus uit de aanbeveling, RSI, MACD, de cijfers en de scorekaart. Bij een
+koopadvies kun je direct **Ik heb dit gekocht** kiezen, zodat je een verkoopmelding krijgt. Eerdere analyses blijven
+bewaard en kun je opnieuw openen. Je kunt ook vanuit het detailvenster van elk aandeel of elke munt een analyse
+starten.
+
+| Model | Kosten per analyse (ongeveer) |
+|---|---|
+| Opus 5.5 (aanbevolen) | $0,10-0,30 |
+| Sonnet 5.5 | $0,05-0,15 |
+| Haiku 5.5 | minder dan $0,01 |
+
+Een analyse van dezelfde ticker met hetzelfde model binnen 30 minuten wordt hergebruikt. Met **Opnieuw
+analyseren** maak je een nieuwe. Het dashboard toont per analyse de werkelijke kosten. Zonder AI-sleutel krijg je
+alleen de eigen berekening.
+
+![Analyse naar keuze (demodata met voorbeeldtekst)](docs/analyse.png)
+
+> De kans is een schatting van het model, verankerd aan de historische trefkans. Een hoge kans is geen garantie,
+> en de historische trefkans zegt hoe beweeglijk de koers is, niet wat er gaat gebeuren. Dit is geen
+> beleggingsadvies.
 
 ---
 
@@ -774,6 +832,7 @@ market_monitor/                 de add-on
     technical.py, recommend.py  technische analyse (met scorekaart) en aanbeveling; terugkijken + koop-nu-oordeel
     portfolio.py                mijn posities: verkoopadvies, trailing stop en meldingen
     planner.py                  budgetplan: verdeling op risico, timing, zekerheid, instapmeldingen
+    analyzer.py                 analyse naar keuze: data ophalen, eigen berekening, trefkans, Claude, controle
     summary.py                  samenvatting per markt (Claude of automatisch)
     alerts.py                   noodmeldingen (detectoren, afkoelperiode, daglimiet, AI-controle)
     hass.py                     sensoren, events en popup-meldingen naar je telefoon

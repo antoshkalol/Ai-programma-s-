@@ -27,7 +27,8 @@
     actor: "all", type: "all", min: 100000, junk: "0", summaries: [], summaryId: null,
     markets: ["stocks", "crypto"], sound: recall("mm-sound", "off") === "on",
     rotate: hashMarket === "rotate" || recall("mm-rotate", "off") === "on",
-    view: ["aanbeveling", "rec"].includes(hashMarket) ? "rec" : (["trading", "trade"].includes(hashMarket) ? "trade" : null),
+    view: ["aanbeveling", "rec"].includes(hashMarket) ? "rec" : (["trading", "trade"].includes(hashMarket) ? "trade"
+      : (hashMarket === "analyse" ? "analyse" : null)),
     lastAlertId: +recall("mm-last-alert", "0"), alerts: [],
   };
   state.min = TEXT[state.market].min;
@@ -176,7 +177,7 @@
   async function loadOverview() {
     const o = await api(q("overview"));
     state.markets = o.markets.map((m) => m.key);
-    document.querySelectorAll("#market-tabs button").forEach((b) => { b.hidden = !["rec", "trade"].includes(b.dataset.market) && !state.markets.includes(b.dataset.market); });
+    document.querySelectorAll("#market-tabs button").forEach((b) => { b.hidden = !["rec", "trade", "analyse"].includes(b.dataset.market) && !state.markets.includes(b.dataset.market); });
     if (!state.markets.includes(state.market) && state.markets.length) { switchMarket(state.markets[0]); return; }
     renderRecLink(o.recommendation);
     const mood = $("mood");
@@ -541,6 +542,11 @@
     try { data = await api(q("ticker/" + encodeURIComponent(ticker))); } catch (e) { $("d-name").textContent = "Kon gegevens niet laden"; return; }
     const meta = data.meta || {};
     $("d-name").textContent = (meta.name || "") + (meta.last_price ? " · " + fmtPrice(meta.last_price, meta.currency) : "");
+    if (window.MMAnalyse) {
+      const mk = state.market;
+      body.appendChild(el("button", { type: "button", class: "linkbtn analyse-link", text: "Uitgebreide analyse door Claude \u203A",
+        onclick: () => { closeDrawer(); window.MMAnalyse.analyse(mk, ticker); } }));
+    }
     const sc = data.score;
     if (sc) {
       const [tcls, tico] = timingClass(sc.timing);
@@ -1169,7 +1175,8 @@
     document.body.dataset.view = state.view;
     $("rec-view").hidden = state.view !== "rec";
     $("trade-view").hidden = state.view !== "trade";
-    document.querySelector("main.grid").hidden = state.view === "rec" || state.view === "trade";
+    $("analyse-view").hidden = state.view !== "analyse";
+    document.querySelector("main.grid").hidden = ["rec", "trade", "analyse"].includes(state.view);
     document.querySelectorAll("[data-market-chip]").forEach((c) => { c.textContent = t.label; });
     $("t-trades").textContent = t.trades;
     $("t-trades-sub").textContent = t.tradesSub;
@@ -1183,13 +1190,13 @@
   }
   function switchView(v) {
     if (v === state.view) return;
-    if (v === "trade") {
-      state.view = "trade";
+    if (v === "trade" || v === "analyse") {
+      state.view = v;
       if (state.rotate) { state.rotate = false; store("mm-rotate", "off"); applyRotate(); }
-      history.replaceState(null, "", "#trading");
+      history.replaceState(null, "", v === "trade" ? "#trading" : "#analyse");
       closeDrawer();
       applyMarketTexts();
-      document.title = "Market Monitor - Trading";
+      document.title = "Market Monitor - " + (v === "trade" ? "Trading" : "Analyse");
       refreshAll();
       return;
     }
@@ -1307,13 +1314,15 @@
   });
 
   window.MM = { el, svg, clear, api, fmtPrice, fmtDate, fmtTime, timeAgo, parseTime, taChart, rsiChart, macdChart,
-    taScorecard, switchMarket, openDrawer, toast, nf0, nf1, nf2, DIR, TEXT, state, fmtPct };
+    taScorecard, switchMarket, switchView, openDrawer, closeDrawer, toast, nf0, nf1, nf2, DIR, TEXT, state, fmtPct };
 
   function refreshAll() {
     const jobs = state.view === "rec"
       ? [loadOverview(), loadAlerts(), loadRecommendations()]
       : state.view === "trade"
         ? [loadOverview(), loadAlerts(), window.MMTrading ? window.MMTrading.refresh() : Promise.resolve()]
+        : state.view === "analyse"
+          ? [loadOverview(), loadAlerts(), window.MMAnalyse ? window.MMAnalyse.refresh() : Promise.resolve()]
         : [loadOverview(), loadTrades(), loadNews(), loadAlerts().then(loadSummaries), loadScores()];
     return Promise.allSettled(jobs).then((res) => {
       res.forEach((r) => { if (r.status === "rejected") console.error(r.reason); });

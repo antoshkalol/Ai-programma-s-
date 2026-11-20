@@ -232,10 +232,13 @@ class Summarizer:
         return self._client
 
     def ask_json(self, system: str, text: str, schema: dict, effort: str | None = None,
-                 max_tokens: int = 16000, model: str | None = None, usage: dict | None = None) -> dict:
-        """Eén Claude-aanroep met gestructureerde JSON-uitvoer (samenvatting, noodmelding, handelsbeslissing).
+                 max_tokens: int = 16000, model: str | None = None, usage: dict | None = None,
+                 stream: bool = False) -> dict:
+        """Eén Claude-aanroep met gestructureerde JSON-uitvoer (samenvatting, noodmelding, handelsbeslissing,
+        analyse naar keuze).
 
-        'usage' (optioneel) wordt gevuld met het tokengebruik, voor de kostenteller van de handelsmodule."""
+        'usage' (optioneel) wordt gevuld met het tokengebruik, voor de kostenteller.
+        'stream' gebruiken voor lange antwoorden (grondige analyse): dan geen time-out op een lange denkpauze."""
         model = model or self.cfg.anthropic_model
         output_config: dict = {"format": {"type": "json_schema", "schema": schema}}
         if not model.startswith(EFFORT_UNSUPPORTED_PREFIXES):
@@ -248,9 +251,19 @@ class Summarizer:
             output_config=output_config,
         )
         client = self.client()
+        if stream:
+            client = client.with_options(timeout=900.0, max_retries=1)
         if model in FALLBACK_MODELS:
             # Bij een (zeldzame) weigering laat de API een ander model het verzoek afmaken
-            resp = client.beta.messages.create(betas=["server-side-fallback-2026-07-01"], fallbacks="default", **kwargs)
+            extra = dict(betas=["server-side-fallback-2026-07-01"], fallbacks="default")
+            if stream:
+                with client.beta.messages.stream(**extra, **kwargs) as st:
+                    resp = st.get_final_message()
+            else:
+                resp = client.beta.messages.create(**extra, **kwargs)
+        elif stream:
+            with client.messages.stream(**kwargs) as st:
+                resp = st.get_final_message()
         else:
             resp = client.messages.create(**kwargs)
         if usage is not None and getattr(resp, "usage", None) is not None:
@@ -262,8 +275,10 @@ class Summarizer:
                 "cache_read": getattr(u, "cache_read_input_tokens", 0) or 0,
                 "cache_write": getattr(u, "cache_creation_input_tokens", 0) or 0,
             })
-        if resp.stop_reason in ("refusal", "max_tokens"):
-            raise RuntimeError(f"AI stopte met stop_reason={resp.stop_reason}")
+        if resp.stop_reason == "max_tokens":
+            raise RuntimeError("Het antwoord van de AI werd te lang en is afgebroken; kies een lagere diepgang")
+        if resp.stop_reason == "refusal":
+            raise RuntimeError("De AI weigerde dit verzoek (stop_reason=refusal)")
         out_text = next((b.text for b in resp.content if b.type == "text"), None)
         if not out_text:
             raise RuntimeError("AI gaf geen tekst terug")
